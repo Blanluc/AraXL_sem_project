@@ -117,6 +117,9 @@ bin/$1: $1/data.S.o $(addsuffix .o, $(shell find $(1) -name "*.c" -o -name "*.S"
 endef
 $(foreach app,$(APPS),$(eval $(call app_compile_template,$(app))))
 
+include rivec.mk
+include tsvc.mk
+
 # Make the RISC-V tests
 riscv_tests: $(CVA6_BINARIES) $(ARA_BINARIES)
 
