@@ -40,6 +40,9 @@ module global_ldst import ara_pkg::*; import rvv_pkg::*;  #(
   output axi_req_t                      axi_req_o
 );
 
+// SEM PROJ :
+logic[127:0] rs_buffer;
+
 import cf_math_pkg::idx_width;
 import axi_pkg::aligned_addr;
 import axi_pkg::BURST_INCR;
@@ -524,6 +527,14 @@ always_comb begin : p_global_ldst
     cluster_axi_resp_data_d[i].r_valid = 1'b0;
     axi_resp_d[i].r_valid = 1'b0;
   end
+
+
+  // SEM PROJ :
+  if(axi_req_i[0].ar.addr == 64'h8FFF_0000) begin
+    axi_resp_d[0].r.data = rs_buffer;
+  end
+
+
   
   fifo_pop_o = 1'b0;
 
@@ -615,6 +626,12 @@ always_comb begin : p_global_ldst
 
   cluster_start_wr_d = cluster_start_wr_q;
   axi_req_data_d = axi_req_data_q;
+
+  // SEM PROJ :
+  if(axi_req_i[0].aw.addr == 64'h8FFF_0000) begin
+    rs_buffer = axi_req_i[0].w.data;
+  end
+
 
   for (int i=0; i<NrClusters; i++) begin
     // For VSXE/VSSE operations, only track valid from the active cluster
