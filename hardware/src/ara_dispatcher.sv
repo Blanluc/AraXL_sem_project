@@ -144,6 +144,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     WAIT_IDLE,
     RESHUFFLE_ST,
     RESHUFFLE_LD,
+    RESHUFFLE_WAIT,
     SLDU_SEQUENCER
   } state_e;
   state_e state_d, state_q;
@@ -604,13 +605,22 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
 
         if (ara_resp_valid_i ) begin
-            state_d = NORMAL_OPERATION;
+            state_d = RESHUFFLE_WAIT;
             ara_req_valid_d  = 1'b0;
         end
       end
+
+      RESHUFFLE_WAIT: begin
+        if (reshuffle_complete_q ) begin
+            state_d = NORMAL_OPERATION;
+            reshuffle_complete_d=1'b0;
+        end
+
+        
+      end
     endcase
 
-    if (state_d == NORMAL_OPERATION && state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST) begin
+    if (state_d == NORMAL_OPERATION && state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST && state_q != RESHUFFLE_WAIT) begin
 
       ara_req_d.is_reshuffle = 1'b0;
 
