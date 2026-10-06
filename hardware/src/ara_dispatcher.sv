@@ -544,7 +544,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         automatic rvv_instruction_t insn = rvv_instruction_t'(acc_req_i.insn.instr);
 
         // The instruction is NOT a store
-        is_vstore = 1'b0;
+        is_vload      = 1'b1;
 
         // Wait before acknowledging this instruction
         acc_resp_o.req_ready = 1'b0;
@@ -605,6 +605,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
         if (ara_resp_valid_i ) begin
             state_d = NORMAL_OPERATION;
+            ara_req_valid_d  = 1'b0;
         end
       end
     endcase
@@ -3471,7 +3472,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     acc_resp_o.load_complete = (~reshuffle_pending_q)? load_zero_vl | load_complete_q : '0;
     //acc_resp_o.store_complete = store_zero_vl | store_complete_q;
     acc_resp_o.store_complete = (~reshuffle_pending_q)? store_zero_vl | store_complete_q : '0;
-    if (reshuffle_pending_q && load_complete_q) begin
+    if (reshuffle_pending_d && load_complete_i) begin // changed from load complete q to load complete i
       reshuffle_complete_d = '1;
       reshuffle_pending_d = '0;
     end
