@@ -472,15 +472,12 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         ara_req_d.eew_vs1   = EW8; // This is the vs1 EEW
         ara_req_d.eew_vs2   = EW8; // This is the vs2 EEW
         ara_req_d.eew_vd_op = EW8;
-
-        ara_req_d.is_reshuffle = 1'b1;
         
 
         ara_req_d.vm        = 1;
         //ara_req_d.scalar_op = acc_req_i.rs1;
         //ara_req_d.scalar_op  = 64'h8FFF_0000;
-        //ara_req_d.scalar_op  = 64'hBFFF_FFD8;
-        ara_req_d.scalar_op  = 64'h8FFF_0000;
+        ara_req_d.scalar_op  = 64'hBFFF_FFD8;
         ara_req_valid_d     = 1'b1;
 
         ara_req_d.vtype.vsew = EW8;
@@ -556,8 +553,6 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         // to the encoding of the source register
         ara_req_d.scale_vl = 1'b1;
 
-        ara_req_d.is_reshuffle = 1'b1;
-
         // These generate a request to Ara's backend
         ara_req_d.vs1       = vs_buffer_q;
         ara_req_d.use_vs1   = 1'b0;
@@ -567,13 +562,13 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
         ara_req_d.use_vd   = 1'b0;
 
-        ara_req_d.vd = 1;
+        ara_req_d.vd = 0;
         
 
         ara_req_d.vm        = 1;
         //ara_req_d.scalar_op = acc_req_i.rs1;
-        ara_req_d.scalar_op  = 64'h8FFF_0000;
-        //ara_req_d.scalar_op  = 64'hBFFF_FFD8;
+        //ara_req_d.scalar_op  = 64'h8FFF_0000;
+        ara_req_d.scalar_op  = 64'hBFFF_FFD8;
         ara_req_valid_d     = 1'b1;
 
         ara_req_d.vtype.vsew = EW64;
@@ -620,10 +615,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
       end
     endcase
 
-    if (state_d == NORMAL_OPERATION && state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST && state_q != RESHUFFLE_WAIT) begin
-
-      ara_req_d.is_reshuffle = 1'b0;
-
+    if (state_d == NORMAL_OPERATION && state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST) begin
       if (acc_req_i.req_valid && ara_req_ready_i && acc_req_i.resp_ready) begin
         // Decoding
         is_decoding = 1'b1;
