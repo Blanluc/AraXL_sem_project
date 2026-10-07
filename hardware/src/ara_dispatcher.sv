@@ -144,7 +144,6 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     WAIT_IDLE,
     RESHUFFLE_ST,
     RESHUFFLE_LD,
-    RESHUFFLE_WAIT,
     SLDU_SEQUENCER
   } state_e;
   state_e state_d, state_q;
@@ -472,12 +471,15 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         ara_req_d.eew_vs1   = EW8; // This is the vs1 EEW
         ara_req_d.eew_vs2   = EW8; // This is the vs2 EEW
         ara_req_d.eew_vd_op = EW8;
+
+        ara_req_d.is_reshuffle = 1'b1;
         
 
         ara_req_d.vm        = 1;
         //ara_req_d.scalar_op = acc_req_i.rs1;
         //ara_req_d.scalar_op  = 64'h8FFF_0000;
-        ara_req_d.scalar_op  = 64'hBFFF_FFD8;
+        //ara_req_d.scalar_op  = 64'hBFFF_FFD8;
+        ara_req_d.scalar_op  = 64'h8FFF_0000;
         ara_req_valid_d     = 1'b1;
 
         ara_req_d.vtype.vsew = EW8;
@@ -542,7 +544,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         automatic rvv_instruction_t insn = rvv_instruction_t'(acc_req_i.insn.instr);
 
         // The instruction is NOT a store
-        is_vload      = 1'b1;
+        is_vstore = 1'b0;
 
         // Wait before acknowledging this instruction
         acc_resp_o.req_ready = 1'b0;
@@ -553,6 +555,8 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         // to the encoding of the source register
         ara_req_d.scale_vl = 1'b1;
 
+        ara_req_d.is_reshuffle = 1'b1;
+
         // These generate a request to Ara's backend
         ara_req_d.vs1       = vs_buffer_q;
         ara_req_d.use_vs1   = 1'b0;
@@ -562,13 +566,13 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
         ara_req_d.use_vd   = 1'b0;
 
-        ara_req_d.vd = 0;
+        ara_req_d.vd = 1;
         
 
         ara_req_d.vm        = 1;
         //ara_req_d.scalar_op = acc_req_i.rs1;
-        //ara_req_d.scalar_op  = 64'h8FFF_0000;
-        ara_req_d.scalar_op  = 64'hBFFF_FFD8;
+        ara_req_d.scalar_op  = 64'h8FFF_0000;
+        //ara_req_d.scalar_op  = 64'hBFFF_FFD8;
         ara_req_valid_d     = 1'b1;
 
         ara_req_d.vtype.vsew = EW64;
@@ -600,22 +604,15 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
 
         if (ara_resp_valid_i ) begin
-            state_d = RESHUFFLE_WAIT;
-            ara_req_valid_d  = 1'b0;
-        end
-      end
-
-      RESHUFFLE_WAIT: begin
-        if (reshuffle_complete_q ) begin
             state_d = NORMAL_OPERATION;
-            reshuffle_complete_d=1'b0;
         end
-
-        
       end
     endcase
 
     if (state_d == NORMAL_OPERATION && state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST) begin
+
+      ara_req_d.is_reshuffle = 1'b0;
+
       if (acc_req_i.req_valid && ara_req_ready_i && acc_req_i.resp_ready) begin
         // Decoding
         is_decoding = 1'b1;
@@ -3474,7 +3471,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     acc_resp_o.load_complete = (~reshuffle_pending_q)? load_zero_vl | load_complete_q : '0;
     //acc_resp_o.store_complete = store_zero_vl | store_complete_q;
     acc_resp_o.store_complete = (~reshuffle_pending_q)? store_zero_vl | store_complete_q : '0;
-    if (reshuffle_pending_d && load_complete_i) begin // changed from load complete q to load complete i
+    if (reshuffle_pending_q && load_complete_q) begin
       reshuffle_complete_d = '1;
       reshuffle_pending_d = '0;
     end
