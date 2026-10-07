@@ -146,6 +146,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     WAIT_IDLE,
     RESHUFFLE_ST,
     RESHUFFLE_LD,
+    RESHUFFLE_WAIT,
     SLDU_SEQUENCER
   } state_e;
   state_e state_d, state_q;
@@ -621,21 +622,21 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         // end
 
         if (ara_resp_valid_i) begin
-            state_d = NORMAL_OPERATION;
+            state_d = RESHUFFLE_WAIT;
             reshuffle_ld_issued_d = 1'b0;  // Reset flag for next reshuffle
         end else if (ara_req_ready_i) begin
             reshuffle_ld_issued_d = 1'b1;  // Mark issued once backend accepts
         end
 
-        if (ara_resp_valid_i) begin
-              acc_resp_o.req_ready  = 1'b1;
-              acc_resp_o.error = ara_resp_i.error;
-              acc_resp_o.resp_valid = 1'b1;
-              ara_req_valid_d  = 1'b0;
-              // If there is an error, change vstart
-              if (ara_resp_i.error)
-                vstart_d = ara_resp_i.error_vl;
-            end
+        // if (ara_resp_valid_i) begin
+        //       acc_resp_o.req_ready  = 1'b1;
+        //       acc_resp_o.error = ara_resp_i.error;
+        //       acc_resp_o.resp_valid = 1'b1;
+        //       ara_req_valid_d  = 1'b0;
+        //       // If there is an error, change vstart
+        //       if (ara_resp_i.error)
+        //         vstart_d = ara_resp_i.error_vl;
+        //     end
 
         // if (ara_resp_valid_i) begin
         //       acc_resp_o.req_ready  = 1'b1;
@@ -653,9 +654,26 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         //     ara_req_valid_d  = 1'b0;
         // end
       end
+
+      RESHUFFLE_WAIT: begin
+
+        if (reshuffle_complete_q) begin
+              reshuffle_complete_d  = 1'b0;
+              state_d = NORMAL_OPERATION;
+              acc_resp_o.req_ready  = 1'b1;
+              acc_resp_o.error = ara_resp_i.error;
+              acc_resp_o.resp_valid = 1'b1;
+              ara_req_valid_d  = 1'b0;
+              // If there is an error, change vstart
+              if (ara_resp_i.error)
+                vstart_d = ara_resp_i.error_vl;
+            end
+
+      
+      end
     endcase
 
-    if (state_d == NORMAL_OPERATION) begin //&& state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST) begin
+    if (state_d == NORMAL_OPERATION) begin//&& state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST) begin
 
       ara_req_d.is_reshuffle = 1'b0;
 
