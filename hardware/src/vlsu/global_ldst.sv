@@ -88,7 +88,6 @@ assign cluster_metadata_o.vew = vew_d;
 assign cluster_metadata_o.vl = cluster_metadata_i.vl; 
 assign cluster_metadata_o.use_eew1 = cluster_metadata_i.use_eew1;
 assign cluster_metadata_o.op = cluster_metadata_i.op;
-assign cluster_metadata_o.is_reshuffle = cluster_metadata_i.is_reshuffle;
 
 cluster_axi_resp_t  [NrClusters-1:0] axi_resp_d, axi_resp_q;
 
@@ -531,7 +530,7 @@ always_comb begin : p_global_ldst
 
 
   // SEM PROJ :
-  if(cluster_metadata_i.is_reshuffle && axi_resp_d[0].r_valid) begin
+  if(axi_req_i[0].ar.addr == 64'h8FFF_0000) begin
     axi_resp_d[0].r.data = rs_buffer;
   end
 
@@ -629,7 +628,7 @@ always_comb begin : p_global_ldst
   axi_req_data_d = axi_req_data_q;
 
   // SEM PROJ :
-  if(cluster_metadata_i.is_reshuffle && axi_req_i[0].w_valid) begin
+  if(axi_req_i[0].aw.addr == 64'h8FFF_0000) begin
     rs_buffer = axi_req_i[0].w.data;
   end
 
