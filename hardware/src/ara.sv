@@ -104,6 +104,8 @@ module ara import ara_pkg::*; import rvv_pkg::*; #(
   logic                         core_st_pending;
   logic                         load_complete;
   logic                         store_complete;
+  logic                         rs_load_complete;
+  logic                         rs_store_complete;
   logic                         store_pending;
   // Interface with the lanes
   logic      [NrLanes-1:0][4:0] fflags_ex;
@@ -138,6 +140,8 @@ module ara import ara_pkg::*; import rvv_pkg::*; #(
     .core_st_pending_o (core_st_pending ),
     .load_complete_i   (load_complete   ),
     .store_complete_i  (store_complete  ),
+    .rs_load_complete_i   (rs_load_complete   ),
+    .rs_store_complete_i  (rs_store_complete  ),
     .store_pending_i   (store_pending   )
   );
 
@@ -378,6 +382,8 @@ module ara import ara_pkg::*; import rvv_pkg::*; #(
     .core_st_pending_i          (core_st_pending                                       ),
     .load_complete_o            (load_complete                                         ),
     .store_complete_o           (store_complete                                        ),
+    .rs_load_complete_o            (rs_load_complete                                         ),
+    .rs_store_complete_o           (rs_store_complete                                        ),
     .store_pending_o            (store_pending                                         ),
     // Interface with the sequencer
     .pe_req_i                   (pe_req                                                ),

@@ -43,6 +43,8 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     output logic                                 core_st_pending_o,
     input  logic                                 load_complete_i,
     input  logic                                 store_complete_i,
+    input  logic                                 rs_load_complete_i,
+    input  logic                                 rs_store_complete_i,
     input  logic                                 store_pending_i
   );
 
@@ -165,6 +167,9 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
   // Keep track of the registers to be reshuffled |vs1|vs2|vd|
   logic [2:0] reshuffle_req_d, reshuffle_req_q;
 
+  // ADDED
+  logic reshuffle_ld_issued_d, reshuffle_ld_issued_q;
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       state_q             <= NORMAL_OPERATION;
@@ -181,6 +186,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
       // SEM PROJ
       reshuffle_pending_q <= '0;
       reshuffle_complete_q <= '0;
+      reshuffle_ld_issued_q <= '0;
     end else begin
       state_q             <= state_d;
       eew_q               <= eew_d;
@@ -196,6 +202,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
       // SEM PROJ
       reshuffle_pending_q <= reshuffle_pending_d;
       reshuffle_complete_q <= reshuffle_complete_d;
+      reshuffle_ld_issued_q <= reshuffle_ld_issued_d;
     end
   end
 
@@ -271,6 +278,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     // SEM PROJ
     reshuffle_pending_d =reshuffle_pending_q;
     reshuffle_complete_d = reshuffle_complete_q;
+    reshuffle_ld_issued_d = reshuffle_ld_issued_q;
 
     reshuffle_req_d  = reshuffle_req_q;
     eew_old_buffer_d = eew_old_buffer_q;
@@ -459,6 +467,10 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         // Wait before acknowledging this instruction
         acc_resp_o.req_ready = 1'b0;
 
+        //acc_resp_o.req_ready  = 1'b0;
+        // added
+        acc_resp_o.resp_valid = 1'b0;
+
         // vl depends on the EEW encoded in the instruction.
         // Ara does not reshuffle source vregs upon vector stores,
         // thus the operand requesters will fetch Bytes referring
@@ -513,6 +525,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
         if (ara_resp_valid_i) begin
           state_d = RESHUFFLE_LD;
+          ara_req_valid_d  = 1'b0;
         end
 
 
@@ -527,15 +540,15 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
             // multiplier LMUL_1 and element width EW8. They overwrite all this decoding.
             
             // Wait until the back-end answers to acknowledge those instructions
-            if (ara_resp_valid_i) begin
-              acc_resp_o.req_ready  = 1'b1;
-              acc_resp_o.error = ara_resp_i.error;
-              acc_resp_o.resp_valid = 1'b1;
-              ara_req_valid_d  = 1'b0;
-              // If there is an error, change vstart
-              if (ara_resp_i.error)
-                vstart_d = ara_resp_i.error_vl;
-            end
+            // if (ara_resp_valid_i) begin
+            //   acc_resp_o.req_ready  = 1'b1;
+            //   acc_resp_o.error = ara_resp_i.error;
+            //   acc_resp_o.resp_valid = 1'b1;
+            //   ara_req_valid_d  = 1'b0;
+            //   // If there is an error, change vstart
+            //   if (ara_resp_i.error)
+            //     vstart_d = ara_resp_i.error_vl;
+            // end
 
       end
 
@@ -544,7 +557,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         automatic rvv_instruction_t insn = rvv_instruction_t'(acc_req_i.insn.instr);
 
         // The instruction is NOT a store
-        is_vstore = 1'b0;
+        is_vload = 1'b0;
 
         // Wait before acknowledging this instruction
         acc_resp_o.req_ready = 1'b0;
@@ -573,7 +586,12 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         //ara_req_d.scalar_op = acc_req_i.rs1;
         ara_req_d.scalar_op  = 64'h8FFF_0000;
         //ara_req_d.scalar_op  = 64'hBFFF_FFD8;
-        ara_req_valid_d     = 1'b1;
+        //ara_req_valid_d     = 1'b1;
+        // Only issue VLE on first cycle of this state
+        ara_req_valid_d = ~reshuffle_ld_issued_q;
+
+        reshuffle_pending_d = 1;
+
 
         ara_req_d.vtype.vsew = EW64;
 
@@ -602,14 +620,42 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         //     vstart_d = ara_resp_i.error_vl;
         // end
 
-
-        if (ara_resp_valid_i ) begin
+        if (ara_resp_valid_i) begin
             state_d = NORMAL_OPERATION;
+            reshuffle_ld_issued_d = 1'b0;  // Reset flag for next reshuffle
+        end else if (ara_req_ready_i) begin
+            reshuffle_ld_issued_d = 1'b1;  // Mark issued once backend accepts
         end
+
+        if (ara_resp_valid_i) begin
+              acc_resp_o.req_ready  = 1'b1;
+              acc_resp_o.error = ara_resp_i.error;
+              acc_resp_o.resp_valid = 1'b1;
+              ara_req_valid_d  = 1'b0;
+              // If there is an error, change vstart
+              if (ara_resp_i.error)
+                vstart_d = ara_resp_i.error_vl;
+            end
+
+        // if (ara_resp_valid_i) begin
+        //       acc_resp_o.req_ready  = 1'b1;
+        //       acc_resp_o.error = ara_resp_i.error;
+        //       acc_resp_o.resp_valid = 1'b1;
+        //       ara_req_valid_d  = 1'b0;
+        //       // If there is an error, change vstart
+        //       if (ara_resp_i.error)
+        //         vstart_d = ara_resp_i.error_vl;
+        //     end
+
+
+        // if (ara_resp_valid_i ) begin
+        //     state_d = NORMAL_OPERATION;
+        //     ara_req_valid_d  = 1'b0;
+        // end
       end
     endcase
 
-    if (state_d == NORMAL_OPERATION && state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST) begin
+    if (state_d == NORMAL_OPERATION) begin //&& state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST) begin
 
       ara_req_d.is_reshuffle = 1'b0;
 
@@ -3360,9 +3406,9 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         // Annotate which registers need a reshuffle -> |vs1|vs2|vd|
         // Optimization: reshuffle vs1 and vs2 only if the operation is strictly in-lane
         // Optimization: reshuffle vd only if we are not overwriting the whole vector register!
-        reshuffle_req_d = {ara_req_d.use_vs1 && (ara_req_d.eew_vs1    != eew_q[ara_req_d.vs1]) && eew_valid_q[ara_req_d.vs1] && in_lane_op ,
-                           ara_req_d.use_vs2 && (ara_req_d.eew_vs2    != eew_q[ara_req_d.vs2]) && eew_valid_q[ara_req_d.vs2] && in_lane_op ,
-                           ara_req_d.use_vd  && (ara_req_d.vtype.vsew != eew_q[ara_req_d.vd ]) && eew_valid_q[ara_req_d.vd ] && vl_q != (VLENB >> ara_req_d.vtype.vsew) };
+        reshuffle_req_d = {ara_req_d.use_vs1 && (ara_req_d.eew_vs1    != eew_q[ara_req_d.vs1]) && eew_valid_q[ara_req_d.vs1] && in_lane_op && ara_req_d.op != VLE , // Skip loads
+                           ara_req_d.use_vs2 && (ara_req_d.eew_vs2    != eew_q[ara_req_d.vs2]) && eew_valid_q[ara_req_d.vs2] && in_lane_op && ara_req_d.op != VLE,
+                           ara_req_d.use_vd  && (ara_req_d.vtype.vsew != eew_q[ara_req_d.vd ]) && eew_valid_q[ara_req_d.vd ] && vl_q != (VLENB >> ara_req_d.vtype.vsew) && ara_req_d.op != VLE};
         // TODO: Reshuffling is currently not supported.
         
         // Prepare the information to reshuffle the vector registers during the next cycles
@@ -3471,7 +3517,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     acc_resp_o.load_complete = (~reshuffle_pending_q)? load_zero_vl | load_complete_q : '0;
     //acc_resp_o.store_complete = store_zero_vl | store_complete_q;
     acc_resp_o.store_complete = (~reshuffle_pending_q)? store_zero_vl | store_complete_q : '0;
-    if (reshuffle_pending_q && load_complete_q) begin
+    if (reshuffle_pending_q && rs_load_complete_i) begin
       reshuffle_complete_d = '1;
       reshuffle_pending_d = '0;
     end
