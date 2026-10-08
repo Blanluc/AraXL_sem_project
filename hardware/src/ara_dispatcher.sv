@@ -466,6 +466,27 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         // SEM PROJ : START BY COPYING SIMPLE LOAD REQ
         automatic rvv_instruction_t insn = rvv_instruction_t'(acc_req_i.insn.instr);
 
+            // Prepare the information to reshuffle the vector registers during the next cycles
+            // Reshuffle in the following order: vd, v2, v1. The order is arbitrary.
+            unique casez (reshuffle_req_d)
+              3'b??1: begin
+                eew_old_buffer_d = eew_q[insn.vmem_type.rd];
+                eew_new_buffer_d = ara_req_d.vtype.vsew;
+                vs_buffer_d      = insn.varith_type.rd;
+              end
+              3'b?10: begin
+                eew_old_buffer_d = eew_q[insn.vmem_type.rs2];
+                eew_new_buffer_d = ara_req_d.eew_vs2;
+                vs_buffer_d      = insn.varith_type.rs2;
+              end
+              3'b100: begin
+                eew_old_buffer_d = eew_q[insn.vmem_type.rs1];
+                eew_new_buffer_d = ara_req_d.eew_vs1;
+                vs_buffer_d      = insn.varith_type.rs1;
+              end
+              default:;
+            endcase
+
         // The instruction is a store
         is_vstore = 1'b1;
 
@@ -494,8 +515,6 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
         ara_req_d.vm        = 1;
         //ara_req_d.scalar_op = acc_req_i.rs1;
-        //ara_req_d.scalar_op  = 64'h8FFF_0000;
-        //ara_req_d.scalar_op  = 64'hBFFF_FFD8;
         ara_req_d.scalar_op  = 64'h8FFF_0000;
         ara_req_valid_d     = 1'b1;
 
@@ -529,7 +548,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         // endcase
 
         if (ara_resp_valid_i) begin
-          state_d = RESHUFFLE_LD;
+          state_d = RESHUFFLE_WAIT;
           ara_req_valid_d  = 1'b0;
         end
 
@@ -584,15 +603,12 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
         ara_req_d.use_vd   = 1'b0;
 
-        ara_req_d.vd = 1;
+        ara_req_d.vd = vs_buffer_q;
         
 
         ara_req_d.vm        = 1;
-        //ara_req_d.scalar_op = acc_req_i.rs1;
         ara_req_d.scalar_op  = 64'h8FFF_0000;
-        //ara_req_d.scalar_op  = 64'hBFFF_FFD8;
-        //ara_req_valid_d     = 1'b1;
-        // Only issue VLE on first cycle of this state
+
         ara_req_valid_d = ~reshuffle_ld_issued_q;
 
         reshuffle_pending_d = 1;
@@ -609,10 +625,12 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         reshuffle_pending_d = 1;
 
         // debug
-        eew_d[1]=EW64;
+        eew_d[vs_buffer_d]=EW64;
         eew_d[3]=EW64;
         eew_d[4]=EW64;
         eew_d[0]=EW64;
+
+         
 
         // Wait until the back-end answers to acknowledge those instructions
         // if (ara_resp_valid_i) begin
@@ -660,6 +678,18 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
       end
 
       RESHUFFLE_WAIT: begin
+
+        if (rs_store_complete_i) begin
+          unique casez (reshuffle_req_q)
+          3'b??1: reshuffle_req_d = {reshuffle_req_q[2:1], 1'b0};
+          3'b?10: reshuffle_req_d = {reshuffle_req_q[2  ], 2'b0};
+          3'b100: reshuffle_req_d =                        3'b0 ;
+          default:;
+        endcase
+              state_d =RESHUFFLE_LD;
+            end
+
+       
 
         if (reshuffle_complete_q) begin
               reshuffle_complete_d  = 1'b0;
