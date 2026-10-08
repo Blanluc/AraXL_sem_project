@@ -239,6 +239,10 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
   logic store_complete_q;
   `FF(load_complete_q, load_complete_i, 1'b0)
   `FF(store_complete_q, store_complete_i, 1'b0)
+  logic rs_load_complete_q;
+  logic rs_store_complete_q;
+  `FF(rs_load_complete_q, rs_load_complete_i, 1'b0)
+  `FF(rs_store_complete_q, rs_store_complete_i, 1'b0)
 
   // NP2 Slide support
   logic is_stride_np2;
@@ -3532,7 +3536,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     end
 
     //acc_resp_o.load_complete  = load_zero_vl  | load_complete_q;
-    acc_resp_o.load_complete = (~reshuffle_pending_q)? load_zero_vl | load_complete_q : '0;
+    acc_resp_o.load_complete = (~rs_load_complete_q)? load_zero_vl | load_complete_q : '0;
     //acc_resp_o.store_complete = store_zero_vl | store_complete_q;
     acc_resp_o.store_complete = (~reshuffle_pending_q)? store_zero_vl | store_complete_q : '0;
     if (reshuffle_pending_q && rs_load_complete_i) begin
