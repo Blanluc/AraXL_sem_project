@@ -490,6 +490,8 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         // The instruction is a store
         is_vstore = 1'b1;
 
+        ignore_zero_vl_check = 1'b1;
+
         // Wait before acknowledging this instruction
         acc_resp_o.req_ready = 1'b0;
 
@@ -528,51 +530,11 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
         reshuffle_pending_d = 1;
 
-        // unique casez (reshuffle_req_d)
-        //   3'b??1: begin
-        //     vs_buffer_d      = vs_buffer_q + 1;
-        //     eew_old_buffer_d = eew_q[vs_buffer_d];
-        //     eew_new_buffer_d = ara_req_d.vtype.vsew;
-        //   end
-        //   3'b?10: begin
-        //     vs_buffer_d      = vs_buffer_q + 1;
-        //     eew_old_buffer_d = eew_q[vs_buffer_d];
-        //     eew_new_buffer_d = ara_req_d.eew_vs2;
-        //   end
-        //   3'b100: begin
-        //     vs_buffer_d      = vs_buffer_q + 1;
-        //     eew_old_buffer_d = eew_q[vs_buffer_d];
-        //     eew_new_buffer_d = ara_req_d.eew_vs1;
-        //   end
-        //   default:;
-        // endcase
-
         if (ara_resp_valid_i) begin
           state_d = RESHUFFLE_WAIT;
           ara_req_valid_d  = 1'b0;
         end
 
-
-            //vtype_q.vlmul = LMUL_1;
-
-            // For memory operations: EMUL = LMUL * (EEW / SEW)
-            // EEW is encoded in the instruction
-            //ara_req_d.emul = vlmul_e'(vtype_q.vlmul + (ara_req_d.vtype.vsew - vtype_q.vsew));
-            // Exception if EMUL > 8 or < 1/8
-
-            // Vector whole register stores are encoded as stores of length VLENB, length
-            // multiplier LMUL_1 and element width EW8. They overwrite all this decoding.
-            
-            // Wait until the back-end answers to acknowledge those instructions
-            // if (ara_resp_valid_i) begin
-            //   acc_resp_o.req_ready  = 1'b1;
-            //   acc_resp_o.error = ara_resp_i.error;
-            //   acc_resp_o.resp_valid = 1'b1;
-            //   ara_req_valid_d  = 1'b0;
-            //   // If there is an error, change vstart
-            //   if (ara_resp_i.error)
-            //     vstart_d = ara_resp_i.error_vl;
-            // end
 
       end
 
@@ -580,8 +542,10 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
         automatic rvv_instruction_t insn = rvv_instruction_t'(acc_req_i.insn.instr);
 
-        // The instruction is NOT a store
-        is_vload = 1'b0;
+        // The instruction is a load
+        is_vload = 1'b1;
+
+        ignore_zero_vl_check = 1'b1;
 
         // Wait before acknowledging this instruction
         acc_resp_o.req_ready = 1'b0;
@@ -595,13 +559,11 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
         ara_req_d.is_reshuffle = 1'b1;
 
         // These generate a request to Ara's backend
-        ara_req_d.vs1       = vs_buffer_q;
-        ara_req_d.use_vs1   = 1'b0;
         ara_req_d.eew_vs1   = EW64; // This is the vs1 EEW
         ara_req_d.eew_vs2   = EW64; // This is the vs2 EEW
         ara_req_d.eew_vd_op = EW64;
 
-        ara_req_d.use_vd   = 1'b0;
+        ara_req_d.use_vd   = 1'b1;
 
         ara_req_d.vd = vs_buffer_q;
         
@@ -613,35 +575,25 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
 
         reshuffle_pending_d = 1;
 
-
+        // HARDCODED : store to EW64
         ara_req_d.vtype.vsew = EW64;
 
         ara_req_d.op = VLE;
 
+        // HARDCODED
         ara_req_d.vl         = 2;
         ara_req_d.vl_cluster = 2;
-        ara_req_d.use_eew1   = 1'b0;
+        ara_req_d.use_eew1   = 1'b1;
 
         reshuffle_pending_d = 1;
 
-        // debug
+        // Set eew to new eew
         eew_d[vs_buffer_d]=EW64;
+
+        // Set these for convenience
         eew_d[3]=EW64;
         eew_d[4]=EW64;
         eew_d[0]=EW64;
-
-         
-
-        // Wait until the back-end answers to acknowledge those instructions
-        // if (ara_resp_valid_i) begin
-        //   acc_resp_o.req_ready  = 1'b1;
-        //   acc_resp_o.error = ara_resp_i.error;
-        //   acc_resp_o.resp_valid = 1'b1;
-        //   ara_req_valid_d  = 1'b0;
-        //   // In case of error, modify vstart
-        //   if (ara_resp_i.error)
-        //     vstart_d = ara_resp_i.error_vl;
-        // end
 
         if (ara_resp_valid_i) begin
             state_d = RESHUFFLE_WAIT;
@@ -650,48 +602,26 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
             reshuffle_ld_issued_d = 1'b1;  // Mark issued once backend accepts
         end
 
-        // if (ara_resp_valid_i) begin
-        //       acc_resp_o.req_ready  = 1'b1;
-        //       acc_resp_o.error = ara_resp_i.error;
-        //       acc_resp_o.resp_valid = 1'b1;
-        //       ara_req_valid_d  = 1'b0;
-        //       // If there is an error, change vstart
-        //       if (ara_resp_i.error)
-        //         vstart_d = ara_resp_i.error_vl;
-        //     end
-
-        // if (ara_resp_valid_i) begin
-        //       acc_resp_o.req_ready  = 1'b1;
-        //       acc_resp_o.error = ara_resp_i.error;
-        //       acc_resp_o.resp_valid = 1'b1;
-        //       ara_req_valid_d  = 1'b0;
-        //       // If there is an error, change vstart
-        //       if (ara_resp_i.error)
-        //         vstart_d = ara_resp_i.error_vl;
-        //     end
-
-
-        // if (ara_resp_valid_i ) begin
-        //     state_d = NORMAL_OPERATION;
-        //     ara_req_valid_d  = 1'b0;
-        // end
       end
 
       RESHUFFLE_WAIT: begin
 
-        if (rs_store_complete_i) begin
+        // If we come from sore
+        if (rs_store_complete_q) begin
           unique casez (reshuffle_req_q)
-          3'b??1: reshuffle_req_d = {reshuffle_req_q[2:1], 1'b0};
-          3'b?10: reshuffle_req_d = {reshuffle_req_q[2  ], 2'b0};
-          3'b100: reshuffle_req_d =                        3'b0 ;
-          default:;
-        endcase
-              state_d =RESHUFFLE_LD;
-            end
-
+            3'b??1: reshuffle_req_d = {reshuffle_req_q[2:1], 1'b0};
+            3'b?10: reshuffle_req_d = {reshuffle_req_q[2  ], 2'b0};
+            3'b100: reshuffle_req_d =                        3'b0 ;
+            default:;
+          endcase
+          state_d =RESHUFFLE_LD;
+        end
        
-
+        // If we come from load, finish reshuffle, respond to acc
+        // Ack only when all reshuffles are done
         if (reshuffle_complete_q) begin
+          unique case (reshuffle_req_d)
+            3'b000 : begin
               reshuffle_complete_d  = 1'b0;
               state_d = NORMAL_OPERATION;
               acc_resp_o.req_ready  = 1'b1;
@@ -702,12 +632,20 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
               if (ara_resp_i.error)
                 vstart_d = ara_resp_i.error_vl;
             end
+            default: begin
+              ara_req_valid_d  = 1'b0;
+              reshuffle_complete_d  = 1'b0;
+              state_d = RESHUFFLE_ST;
+              ara_req_valid_d  = 1'b0;            
+            end
+          endcase
+        end
 
       
       end
     endcase
 
-    if (state_d == NORMAL_OPERATION) begin//&& state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST) begin
+    if (state_d == NORMAL_OPERATION && state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST && state_q != RESHUFFLE_WAIT) begin
 
       ara_req_d.is_reshuffle = 1'b0;
 
@@ -3568,7 +3506,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     //acc_resp_o.load_complete  = load_zero_vl  | load_complete_q;
     acc_resp_o.load_complete = (~rs_load_complete_q)? load_zero_vl | load_complete_q : '0;
     //acc_resp_o.store_complete = store_zero_vl | store_complete_q;
-    acc_resp_o.store_complete = (~reshuffle_pending_q)? store_zero_vl | store_complete_q : '0;
+    acc_resp_o.store_complete = (~rs_store_complete_q)? store_zero_vl | store_complete_q : '0;
     if (reshuffle_pending_q && rs_load_complete_i) begin
       reshuffle_complete_d = '1;
       reshuffle_pending_d = '0;
