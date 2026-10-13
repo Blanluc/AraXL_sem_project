@@ -41,8 +41,9 @@ module global_ldst import ara_pkg::*; import rvv_pkg::*;  #(
 );
 
 // SEM PROJ :
-logic[127:0] rs_buffer_0;
-logic[127:0] rs_buffer_1;
+logic[256:0] rs_buffer;
+//logic[127:0] rs_buffer_1;
+logic rs_toggle_q, rs_toggle_d;
 
 import cf_math_pkg::idx_width;
 import axi_pkg::aligned_addr;
@@ -111,6 +112,8 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     fifo_push_q   <= 1'b0;
     w_fifo_push_q <= 1'b0;
     axi_resp_q    <= '0;
+    // sem proj
+    rs_toggle_q <= '0;
   end else begin
     r_req_valid_q <= r_req_valid_d;
     req_q         <= req_d;
@@ -128,6 +131,8 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     fifo_push_q   <= fifo_push_d;
     w_fifo_push_q <= w_fifo_push_d;
     axi_resp_q    <= axi_resp_d;
+    // sem proj
+    rs_toggle_q <= rs_toggle_d;
   end
 end
 
@@ -263,6 +268,9 @@ always_comb begin : p_global_ldst
 
   idx_metadata_i = '0;
   axi_resp_d = axi_resp_q;
+
+  // sem proj
+  rs_toggle_d = rs_toggle_q;
 
   /////////////////
   //  AXI AR/AW  //
@@ -532,13 +540,15 @@ always_comb begin : p_global_ldst
 
 
   // SEM PROJ :
-  if(cluster_metadata_i.is_reshuffle && axi_resp_d[0].r_valid) begin
-    axi_resp_d[0].r.data = rs_buffer_0;
-  end
+  // if(cluster_metadata_i.is_reshuffle && axi_req_i[0].ar_valid && rs_toggle_q) begin
+  //   axi_resp_d[0].r.data = rs_buffer_0;
+  //   rs_toggle_d =0;
+  // end
 
-  if(cluster_metadata_i.is_reshuffle && axi_resp_d[1].r_valid) begin
-    axi_resp_d[1].r.data = rs_buffer_1;
-  end
+  // if(cluster_metadata_i.is_reshuffle && axi_resp_d[1].r_valid) begin
+  //   axi_resp_d[1].r.data = rs_buffer_1;
+  //   rs_toggle_d =0;
+  // end
 
 
   
@@ -554,7 +564,12 @@ always_comb begin : p_global_ldst
         if (idx_metadata_o.op inside {VLXE, VLSE}) begin
           cluster_axi_resp_data_d[cluster_start_r_q+i].r.data = axi_resp_i.r.data[0*ClusterAxiDataWidth +: ClusterAxiDataWidth];
         end else begin
-          cluster_axi_resp_data_d[cluster_start_r_q+i].r.data = axi_resp_i.r.data[i*ClusterAxiDataWidth +: ClusterAxiDataWidth];
+          if (!cluster_metadata_i.is_reshuffle) begin
+            cluster_axi_resp_data_d[cluster_start_r_q+i].r.data = axi_resp_i.r.data[i*ClusterAxiDataWidth +: ClusterAxiDataWidth];
+          end else begin
+            cluster_axi_resp_data_d[cluster_start_r_q+i].r.data = rs_buffer;
+            rs_toggle_d =0;
+          end
         end
         cluster_axi_resp_data_d[cluster_start_r_q+i].r.id   = axi_resp_i.r.id;
         cluster_axi_resp_data_d[cluster_start_r_q+i].r.resp = axi_resp_i.r.resp;
@@ -634,12 +649,15 @@ always_comb begin : p_global_ldst
   axi_req_data_d = axi_req_data_q;
 
   // SEM PROJ :
-  if(cluster_metadata_i.is_reshuffle && axi_req_i[0].w_valid) begin
-    rs_buffer_0 = axi_req_i[0].w.data;
+  if(cluster_metadata_i.is_reshuffle && axi_req_i[0].w_valid && !rs_toggle_q) begin
+    rs_buffer = '0; // cleanup
+    rs_buffer = axi_req_i[0].w.data;
+    w_valid_d = 0;
+    rs_toggle_d = 1;
   end
-  if(cluster_metadata_i.is_reshuffle && axi_req_i[1].w_valid) begin
-    rs_buffer_1 = axi_req_i[1].w.data;
-  end
+  // if(cluster_metadata_i.is_reshuffle && axi_req_i[1].w_valid) begin
+  //   rs_buffer[1] = axi_req_i[1].w.data;
+  // end
 
 
   for (int i=0; i<NrClusters; i++) begin
@@ -666,8 +684,10 @@ always_comb begin : p_global_ldst
         w_cluster_last_d[i] = 1'b1;
       end
     end else begin
-      axi_req_data_d[i] = w_cluster_ready_q[i] ? axi_req_i[i] : axi_req_data_q[i];
-      w_cluster_last_d[i] = w_cluster_ready_q[i] ? axi_req_i[0].w.last : w_cluster_last_q[i];  // Only expecting last signal from cluster-0
+      //if (!cluster_metadata_i.is_reshuffle) begin
+        axi_req_data_d[i] = w_cluster_ready_q[i] ? axi_req_i[i] : axi_req_data_q[i];
+        w_cluster_last_d[i] = w_cluster_ready_q[i] ? axi_req_i[0].w.last : w_cluster_last_q[i];  // Only expecting last signal from cluster-0 
+      //end
     end
   end
   w_last_d = w_ready_q ? axi_req_i[0].w.last : w_last_q;
