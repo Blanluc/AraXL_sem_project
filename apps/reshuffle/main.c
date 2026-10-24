@@ -14,6 +14,24 @@ int8_t mask[2] = {0xAA, 0xAA};
 
 // }
 // mem display -format hex /ara_tb/dut/i_ara_soc/i_system/i_ara_cluster/p_cluster[0]/i_ara_macro/i_ara/gen_lanes[0]/i_lane/i_vrf/gen_banks[0]/data_sram/sram 
+
+//uint8_t LONG_I8_2[1024] __attribute__((aligned(128)));
+
+// void POPULATE_VECTOR(void) {
+
+//   int j=0;
+//   for (int i=0; i<1024; i++){
+//     if (j==64){
+//       j=0;
+//     }
+//     //LONG_I8[i]= j + 1;
+//     LONG_I8_2[i]= 0;
+//     j ++;
+//   }
+//   __asm__ volatile("fence");
+
+// }
+
 void TEST_RESHUFFLE(void) {
  
   VSET(16, e8, m1);
@@ -101,17 +119,20 @@ void TEST_RESHUFFLE_4(void) {
 
   VSET(1024, e8, m1);
 
-  uint8_t LONG_I8[1024] __attribute__((aligned(128)));
+  //uint8_t LONG_I8[1024] __attribute__((aligned(128)));
   uint8_t LONG_I8_2[1024] __attribute__((aligned(128)));
-  int j=0;
-  for (int i=0; i<1024; i++){
-    if (j==64){
-      j=0;
+
+    int j=0;
+    for (int i=0; i<1024; i++){
+      if (j==64){
+        j=0;
+      }
+      //LONG_I8[i]= j + 1;
+      LONG_I8_2[i]= j;
+      j ++;
     }
-    LONG_I8[i]= j + 1;
-    LONG_I8_2[i]= 0;
-    j ++;
-  }
+    __asm__ volatile("fence");
+  
 
  
   
@@ -119,12 +140,12 @@ void TEST_RESHUFFLE_4(void) {
   asm volatile("vle8.v v2, (%0)" ::"r"(&LONG_I8_2[0]));
   
 
-  VSET(512, e16, m1);
-  asm volatile("vadd.vv v3, v1, v2");
+  //VSET(512, e16, m1);
+  asm volatile("vadd.vv v4, v1, v2");
 
-  VSET(1024, e8, m1);
-  asm volatile("vle8.v v3, (%0)" ::"r"(&LONG_I8_2[0]));
-  asm volatile("vadd.vv v3, v1, v2");
+  // VSET(1024, e8, m1);
+  // asm volatile("vle8.v v3, (%0)" ::"r"(&LONG_I8_2[0]));
+  // asm volatile("vadd.vv v3, v1, v2");
 
 
   LVCMP_U8(15, v1, LONG_I8);
@@ -217,22 +238,21 @@ void TEST_RESHUFFLE_7(void) {
 
   VSET(1024, e8, m1);
 
-  // uint8_t LONG_I8[1024] __attribute__((aligned(128)));
-  // uint8_t LONG_I8_2[1024] __attribute__((aligned(128)));
-  // int j=0;
-  // for (int i=0; i<1024; i++){
-  //   LONG_I8_2[i]=3;
-  //   if (i<1024){
-  //     LONG_I8[i]=1;
-  //   } else {
-  //     //LONG_I8[i]=2;
-  //   }
-  // }
+  //uint8_t LONG_I8[1024] __attribute__((aligned(128)));
+  uint8_t LONG_I8_2[1024] __attribute__((aligned(128)));
+  int j=0;
+  for (int i=0; i<1024; i++){
+    LONG_I8_2[i]=3;
+    
+  }
 
   asm volatile("vle8.v v0, (%0)" ::"r"(&LONG_I8[0]));
-  asm volatile("vle8.v v2, (%0)" ::"r"(&LONG_I8[0]));
+  asm volatile("vle8.v v2, (%0)" ::"r"(&LONG_I8_2[0]));
 
   asm volatile("vadd.vv v4, v0, v2");
+
+  //LVCMP_U8(67, v0, LONG_I8);
+  //asm volatile("fence");
 
 
 
@@ -244,23 +264,23 @@ void TEST_RESHUFFLE_8(void) {
 
   
   uint8_t LONG_I8_2[1024] __attribute__((aligned(128)));
-  int j=0;
-  for (int i=0; i<1024; i++){
-    if (j== 65){
-      j=0;
+    int j=0;
+    for (int i=0; i<1024; i++){
+      if (j==64){
+        j=0;
+      }
+      //LONG_I8[i]= j + 1;
+      LONG_I8_2[i]= 1;
+      j ++;
     }
-    LONG_I8_2[i]=j;
-    
-    j ++;
-    
-  }
+    __asm__ volatile("fence");
   
   asm volatile("vle8.v v0, (%0)" ::"r"(&LONG_I8_2[0]));
   asm volatile("vle8.v v2, (%0)" ::"r"(&LONG_I8_2[0]));
 
   asm volatile("vadd.vv v4, v0, v2");
 
-  //LVCMP_U8(1, v0, LONG_I8);
+  LVCMP_U8(1, v0, LONG_I8_2);
   
 
   VSET(512, e16, m1);
@@ -284,19 +304,21 @@ void TEST_RESHUFFLE_8(void) {
 int main(void) {
   INIT_CHECK();
   enable_vec();
+  //POPULATE_VECTOR();
 
-  // TEST_RESHUFFLE();
-  // TEST_RESHUFFLE_2();
-  // TEST_RESHUFFLE_3();
+  TEST_RESHUFFLE();
+  TEST_RESHUFFLE_2();
+  TEST_RESHUFFLE_3();
 
-  // TEST_RESHUFFLE_4();
+  TEST_RESHUFFLE_4();
+  
 
   TEST_RESHUFFLE_5();
   TEST_RESHUFFLE_6();
-  TEST_RESHUFFLE_7();
+  // TEST_RESHUFFLE_7();
   TEST_RESHUFFLE_8();
-  TEST_RESHUFFLE_6();
-  TEST_RESHUFFLE_8();
+  //TEST_RESHUFFLE_6();
+  //TEST_RESHUFFLE_8();
 
 
   EXIT_CHECK();
