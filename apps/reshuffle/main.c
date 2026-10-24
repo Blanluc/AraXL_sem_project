@@ -300,6 +300,116 @@ void TEST_RESHUFFLE_8(void) {
 
 }
 
+void TEST_RESHUFFLE_9(void) {
+
+  VSET(1024, e8, m2);
+
+  
+  uint8_t LONG_I8_2[1024] __attribute__((aligned(128)));
+  uint8_t LONG_I8_3[1024] __attribute__((aligned(128)));
+  uint8_t LONG_I8_4[1024] __attribute__((aligned(128)));
+
+  uint16_t LONG_I16_5[512] __attribute__((aligned(128)));
+  uint16_t LONG_I16_6[512] __attribute__((aligned(128)));
+  uint16_t LONG_I16_7[512] __attribute__((aligned(128)));
+
+  int j=0;
+
+  for (int i=0; i<1024; i++){
+    if (j==64){
+      j=0;
+    }
+    //LONG_I8[i]= j + 1;
+    LONG_I8_2[i]= 0x02;
+    LONG_I8_3[i]= 0x03;
+    LONG_I8_4[i]= 0x05;
+
+    if (i<512){
+      LONG_I16_5[i]= 0x0202;
+      LONG_I16_6[i]= 0x0303;
+      LONG_I16_7[i]= 0x0505;
+    }
+    j ++;
+  }
+  __asm__ volatile("fence");
+  
+  asm volatile("vle8.v v0, (%0)" ::"r"(&LONG_I8_2[0]));
+  asm volatile("vle8.v v2, (%0)" ::"r"(&LONG_I8_3[0]));
+
+  asm volatile("vadd.vv v4, v0, v2");
+
+  LVCMP_U8(1, v4, LONG_I8_4);
+  
+
+  VSET(512, e16, m2);
+  asm volatile("vadd.vv v4, v0, v2");
+
+  LVCMP_U16(2, v0, LONG_I16_5);
+  LVCMP_U16(2, v2, LONG_I16_6);
+  LVCMP_U16(2, v4, LONG_I16_7);
+
+  VSET(1024, e8, m2);
+  //asm volatile("vle8.v v4, (%0)" ::"r"(&LONG_I8_2[0]));
+  asm volatile("vadd.vv v4, v0, v2");
+
+
+  LVCMP_U8(2, v0, LONG_I8_2);
+  LVCMP_U8(2, v2, LONG_I8_3);
+  LVCMP_U8(2, v4, LONG_I8_4);
+
+}
+
+void TEST_RESHUFFLE_10(void) {
+
+  // Index-encoded sources: each 16-bit element holds its own index (A)
+  // or a different function of it (B), so any misplaced element is visible.
+  uint16_t IDX_A[512]  __attribute__((aligned(128)));
+  uint16_t IDX_B[512]  __attribute__((aligned(128)));
+  uint16_t IDX_SUM[512] __attribute__((aligned(128)));
+
+  // Byte view of IDX_A, little-endian: byte 2i = low byte of i, byte 2i+1 = high byte.
+  uint8_t IDX_A8[1024]  __attribute__((aligned(128)));
+  uint8_t IDX_SUM8[1024] __attribute__((aligned(128)));
+  uint8_t IDX_SUM8_2[1024] __attribute__((aligned(128)));
+
+  for (int i = 0; i < 512; i++) {
+    IDX_A[i]   = (uint16_t)i;
+    IDX_B[i]   = (uint16_t)(3 * i + 1);
+    IDX_SUM[i] = (uint16_t)(IDX_A[i] + IDX_B[i]);
+  }
+  for (int i = 0; i < 512; i++) {
+    IDX_A8[2 * i]     = (uint8_t)(IDX_A[i] & 0xFF);
+    IDX_A8[2 * i + 1] = (uint8_t)(IDX_A[i] >> 8);
+  }
+  for (int i = 0; i < 512; i++) {
+    IDX_SUM8[2 * i]     = (uint8_t)(IDX_SUM[i] & 0xFF);
+    IDX_SUM8[2 * i + 1] = (uint8_t)(IDX_SUM[i] >> 8);
+  }
+    for (int k = 0; k < 1024; k++) {
+    IDX_SUM8_2[k] = (uint8_t)(IDX_SUM8[k] + IDX_A8[k]);
+  }
+  __asm__ volatile("fence");
+
+  VSET(512, e16, m2);
+  asm volatile("vle16.v v0, (%0)" ::"r"(&IDX_A[0]));
+  asm volatile("vle16.v v2, (%0)" ::"r"(&IDX_B[0]));
+  asm volatile("vadd.vv v4, v0, v2");
+
+  LVCMP_U16(1, v0, IDX_A);
+  LVCMP_U16(2, v2, IDX_B);
+  LVCMP_U16(3, v4, IDX_SUM);
+
+  VSET(1024, e8, m2);
+  asm volatile("vadd.vv v2, v0, v4");
+  LVCMP_U8(4, v0, IDX_A8);
+  LVCMP_U8(5, v4, IDX_SUM8);
+  LVCMP_U8(6, v2, IDX_SUM8_2);
+  
+  VSET(512, e16, m2);
+  asm volatile("vadd.vv v6, v0, v2");
+  LVCMP_U16(7, v0, IDX_A);
+}
+
 
 int main(void) {
   INIT_CHECK();
@@ -315,10 +425,10 @@ int main(void) {
 
   TEST_RESHUFFLE_5();
   TEST_RESHUFFLE_6();
-  // TEST_RESHUFFLE_7();
+  TEST_RESHUFFLE_7();
   TEST_RESHUFFLE_8();
-  //TEST_RESHUFFLE_6();
-  //TEST_RESHUFFLE_8();
+  TEST_RESHUFFLE_9();
+  TEST_RESHUFFLE_10();
 
 
   EXIT_CHECK();
