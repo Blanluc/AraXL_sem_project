@@ -361,13 +361,11 @@ void TEST_RESHUFFLE_9(void) {
 
 void TEST_RESHUFFLE_10(void) {
 
-  // Index-encoded sources: each 16-bit element holds its own index (A)
-  // or a different function of it (B), so any misplaced element is visible.
+  
   uint16_t IDX_A[512]  __attribute__((aligned(128)));
   uint16_t IDX_B[512]  __attribute__((aligned(128)));
   uint16_t IDX_SUM[512] __attribute__((aligned(128)));
 
-  // Byte view of IDX_A, little-endian: byte 2i = low byte of i, byte 2i+1 = high byte.
   uint8_t IDX_A8[1024]  __attribute__((aligned(128)));
   uint8_t IDX_SUM8[1024] __attribute__((aligned(128)));
   uint8_t IDX_SUM8_2[1024] __attribute__((aligned(128)));
