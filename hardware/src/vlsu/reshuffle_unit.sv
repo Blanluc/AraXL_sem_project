@@ -55,6 +55,9 @@ logic [$bits(axi_req_i[0].ar.id)-1:0] ar_id_q [NrClusters], ar_id_d [NrClusters]
 
 logic rs_store_en;
 
+// assign axi_resp_o = axi_resp_d;
+// assign axi_req_o = axi_req_d;
+// assign cluster_metadata_o = cluster_metadata_d;
 assign axi_resp_o = axi_resp_d;
 assign axi_req_o = axi_req_d;
 assign cluster_metadata_o = cluster_metadata_d;
