@@ -64,6 +64,9 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
     is_addr_error = |(addr & (elen_t'(1 << vew) - 1));
   endfunction // is_addr_error
 
+  // SEM PROJ
+  vlen_t debug_len;
+
   ////////////////////
   //  PE Req Queue  //
   ////////////////////
@@ -97,6 +100,12 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
   logic             axi_addrgen_queue_full;
   logic             axi_addrgen_queue_empty;
 
+  logic axi_addrgen_queue_pop;
+
+  // SEM PROJ
+  // DOESNT POP FOR MISALIGNED ST
+  assign axi_addrgen_queue_pop = ldu_axi_addrgen_req_ready_i || stu_axi_addrgen_req_ready_i;
+
   fifo_v3 #(
     .DEPTH(VaddrgenInsnQueueDepth),
     .dtype(addrgen_axi_req_t     )
@@ -109,7 +118,7 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
     .push_i    (axi_addrgen_queue_push                                   ),
     .full_o    (axi_addrgen_queue_full                                   ),
     .data_o    (axi_addrgen_req_o                                        ),
-    .pop_i     (ldu_axi_addrgen_req_ready_i | stu_axi_addrgen_req_ready_i),
+    .pop_i     (axi_addrgen_queue_pop),
     .empty_o   (axi_addrgen_queue_empty                                  ),
     .usage_o   (/* Unused */                                             )
   );
@@ -604,6 +613,7 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
               // 1 - AXI bursts are at most 256 beats long.
               burst_length = 256;
               burst_length = (((axi_addrgen_q.len << int'(axi_addrgen_q.vew))-1) >> eff_axi_dw_log_q) + 1;
+              debug_len = burst_length;
 
               // The above burst length is only used for vldu and vstu to know how many packets to receive.
               // The AXI request to Memory in Global Ld-St unit (GLSU) takes care of the maximum burst limit.

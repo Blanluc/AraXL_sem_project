@@ -65,6 +65,11 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
   import axi_pkg::beat_upper_byte;
   import axi_pkg::BURST_INCR;
 
+  // SEM PROJ :
+  // DEBUG
+  // (axi_addrgen_req_i.addr % AxiDataWidth/8);
+
+
   ///////////////////////
   //  Spill registers  //
   ///////////////////////
@@ -254,7 +259,7 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
       // Account for the beat we sent
       len_d         = len_q + 1;
       // We wrote all the beats for this AW burst
-      if ($unsigned(len_d) == axi_pkg::len_t'($unsigned(axi_addrgen_req_i.len) + 1)) begin
+      if (((axi_addrgen_req_i.addr % (AxiDataWidth/8))!=0) || $unsigned(len_d) == axi_pkg::len_t'($unsigned(axi_addrgen_req_i.len) + 1)) begin // SEM PROJ DEBUG
         axi_w_o.last            = 1'b1;
         // Ask for another burst by the address generator
         axi_addrgen_req_ready_o = 1'b1;

@@ -172,6 +172,9 @@ assign axi_resp_i_cut[0].r_valid = axi_resp_i.r_valid;
 
 logic is_load_aligned, is_load_resp_valid;
 
+// SEM PROJ
+logic is_store_aligned;
+
 always_comb begin
 
   // Initialize state
@@ -408,6 +411,18 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
   end
 end
 
+// SEM PROJ DEBUG
+logic is_store_misaligned;
+logic [AxiDataBytes:0] misaligned_store_mask;
+axi_addr_t store_aligned_addr;
+
+// MISALIGNED STORES
+// 1) DETECT MISALIGNED ADDR
+// 2) EXTRACT MISALIGNMENT OFFSET
+// 3) ROUND ADDR DIWN TO CLOSEST ALIGNED ADDR
+// 4) MAKE WSTRB MASK (pecify the byte lanes of the data bus that contain valid information)
+// 5) ISSUE ONE OR MULTIPLE MASKED WRITES 
+
 // Handling write requests
 always_comb begin
   wr_track_d = wr_track_q; 
@@ -424,9 +439,14 @@ always_comb begin
   //////////////////////
   // Request Handling //
   //////////////////////
+
+  // SEM PROJ
+  // 3) ROUND ADDR DIWN TO CLOSEST ALIGNED ADDR
+  store_aligned_addr = axi_req_i.aw.addr - (axi_req_i.aw.addr % AxiDataBytes);
   
   // Indexed/strided stores issue bus-aligned addresses and the element offset is applied on the W channel byte-enables
-  axi_req_o.aw = axi_req_i.aw;
+  axi_req_o.aw = axi_req_i.aw; //- (axi_req_i.aw.addr % AxiDataBytes); // debug
+  axi_req_o.aw.addr = store_aligned_addr;
   if (cluster_metadata_i.op inside {VSXE, VSSE})
     axi_req_o.aw.addr = axi_req_i.aw.addr & ~axi_addr_t'(AxiDataBytes-1);
 
@@ -434,10 +454,13 @@ always_comb begin
     automatic vew_e     vew          = cluster_metadata_i.vew;
     automatic int       burst        = axi_req_i.aw.len + 1;
     automatic int       axi_bytes    = AxiDataBytes;
-    automatic vlen_cluster_t vlen_request = ((burst << $clog2(AxiDataBytes)) - (axi_req_i.aw.addr[$clog2(AxiDataBytes)-1:0])) >> vew;
+    //automatic vlen_cluster_t vlen_request = ((burst << $clog2(AxiDataBytes)) - (axi_req_i.aw.addr[$clog2(AxiDataBytes)-1:0])) >> vew;
+    automatic vlen_cluster_t vlen_request = ((burst << $clog2(AxiDataBytes)) - (store_aligned_addr[$clog2(AxiDataBytes)-1:0])) >> vew;
+    
     wr_vl_d = wr_vl_q + vlen_request;
     
-    wr_track_d[wr_pnt_q].addr          = axi_req_i.aw.addr;
+    wr_track_d[wr_pnt_q].addr          = axi_req_i.aw.addr;// - (axi_req_i.aw.addr % AxiDataBytes); // debug
+    //wr_track_d[wr_pnt_q].addr          = store_aligned_addr;
     wr_track_d[wr_pnt_q].len           = axi_req_i.aw.len;
     wr_track_d[wr_pnt_q].op            = cluster_metadata_i.op;
     b_track_d[b_pnt_q].count          += 1;
@@ -454,7 +477,18 @@ always_comb begin
   // Response Handling //
   ///////////////////////
 
+  // SEM PROJ:
+  // 1) DETECT MISALIGNED ADDR
+  is_store_aligned = axi_req_i.aw.addr % AxiDataBytes == 0;
+  is_store_misaligned = ~is_store_aligned;
+
+  
+
+  // 4) MAKE WSTRB MASK
+  misaligned_store_mask = '1 & ~(axi_req_i.aw.addr % AxiDataBytes);
+
   axi_req_o.w = axi_req_i.w;
+
   axi_req_o.w.last = 1'b0;
 
   if (axi_req_i.w_valid && axi_resp_o.w_ready) begin
