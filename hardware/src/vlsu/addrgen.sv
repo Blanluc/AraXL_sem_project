@@ -542,17 +542,25 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
 
           // In case of a misaligned store, reduce the effective width of the AXI transaction,
           // since the store unit does not support misalignments between the AXI bus and the lanes
-          if ((axi_addrgen_d.addr[$clog2(AxiDataWidth/8)-1:0] != '0) && !axi_addrgen_d.is_load)
-          begin
-            // Calculate the start and the end addresses in the AXI_ADDRGEN_MISALIGNED state
-            axi_addrgen_state_d = AXI_ADDRGEN_MISALIGNED;
 
-            eff_axi_dw_d     = {1'b0, narrow_axi_data_bwidth};
-            eff_axi_dw_log_d = zeroes_cnt;
-          end else begin
+
+          // SEM PROJ
+          // REMOVE CURRENT MISAL GESTION
+
+          // if ((axi_addrgen_d.addr[$clog2(AxiDataWidth/8)-1:0] != '0) && !axi_addrgen_d.is_load)
+          // begin
+          //   // Calculate the start and the end addresses in the AXI_ADDRGEN_MISALIGNED state
+          //   axi_addrgen_state_d = AXI_ADDRGEN_MISALIGNED;
+
+          //   eff_axi_dw_d     = {1'b0, narrow_axi_data_bwidth};
+          //   eff_axi_dw_log_d = zeroes_cnt;
+          // end else begin
+          
             eff_axi_dw_d     = AxiDataWidth/8;
             eff_axi_dw_log_d = $clog2(AxiDataWidth/8);
-          end
+         
+         // end
+
 
           // For VLSE, each cluster should have different address to issue:
           // For cluster X, the initial address should be (baseaddr_cluster0 + stride*(cluster_id_i*NrLanes))
