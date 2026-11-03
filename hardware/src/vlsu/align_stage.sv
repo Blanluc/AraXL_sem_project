@@ -387,6 +387,42 @@ assign wr_tracker_full = (wr_cnt_q == NumTrackers);
 assign wr_tracker_empty = (wr_cnt_q == 0);
 assign axi_resp_o.aw_ready = axi_resp_i.aw_ready && !wr_tracker_full;
 
+// SEM PROJ DEBUG
+// logic [NumStages:0] axi_req_cut_ready_debug;
+// axi_req_t [NumStages:0] axi_req_i_cut_debug;
+// axi_req_t [NumStages-1:0] axi_req_o_cut_debug;
+
+// assign axi_req_i_cut_debug[0].w = axi_req_i.w;
+// assign axi_req_i_cut_debug[0].w_valid = axi_req_i.w_valid;
+
+// for (genvar s=0; s < NumStages; s++) begin 
+
+//   stream_register #(
+//     .T       ( axi_w_t )
+//   ) i_align_reg_w  (
+//     .clk_i      ( clk_i                     ),
+//     .rst_ni     ( rst_ni                    ),
+//     .clr_i      ( 1'b0                      ),
+//     .testmode_i ( 1'b0                      ),
+//     .valid_i    ( axi_req_i_cut_debug[s].w_valid ),
+//     .ready_o    ( axi_req_cut_ready_debug[s]      ),
+//     .data_i     ( axi_req_i_cut_debug[s].w       ),
+//     .valid_o    ( axi_req_o_cut_debug[s].w_valid ),
+//     .ready_i    ( axi_req_cut_ready_debug[s+1]    ),
+//     .data_o     ( axi_req_o_cut_debug[s].w       )
+//   );
+  
+//   shift_w #(
+//       .AxiDataWidth( AxiDataWidth ), 
+//       .axi_data_t  ( axi_req_t   ),
+//       .ShiftVal    ( 1<<(s)       )
+//     ) i_shift (
+//       .data_i    ( axi_req_o_cut_debug[s]                       ),
+//       .data_o    ( axi_req_i_cut_debug[s+1]                     ),
+//       .sld_valid ( 0 )//tracker_q[rd_resp_pnt_q[s]].shift_en[s] )
+//     );
+// end
+
 always_ff @(posedge clk_i or negedge rst_ni) begin
   if(~rst_ni) begin
     wr_track_q  <= '0;
@@ -481,6 +517,9 @@ always_comb begin
   // 1) DETECT MISALIGNED ADDR
   is_store_aligned = axi_req_i.aw.addr % AxiDataBytes == 0;
   is_store_misaligned = ~is_store_aligned;
+
+  // SEM PROJ DEBUG
+  // axi_req_cut_ready_debug[NumStages] = axi_resp_i.w_ready;
 
   
 
@@ -581,6 +620,25 @@ module shift #(
     data_o = data_i;
     if (sld_valid)
       data_o.r.data = {data_i.r.data[ShiftVal*8-1:0], data_i.r.data[AxiDataWidth-1:ShiftVal*8]};
+  end
+
+endmodule
+
+module shift_w #(
+  parameter  int           unsigned AxiDataWidth        = 0,
+  parameter  type                   axi_data_t          = logic,
+  parameter  int           unsigned ShiftVal            = 0
+) (
+  input axi_data_t data_i, 
+  output axi_data_t data_o,
+
+  input logic sld_valid
+);
+
+  always_comb begin 
+    data_o = data_i;
+    if (sld_valid)
+      data_o.w.data = {data_i.w.data[ShiftVal*8-1:0], data_i.w.data[AxiDataWidth-1:ShiftVal*8]};
   end
 
 endmodule

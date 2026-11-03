@@ -69,6 +69,10 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
   // DEBUG
   // (axi_addrgen_req_i.addr % AxiDataWidth/8);
 
+  axi_pkg::len_t debug_len;
+
+
+
 
   ///////////////////////
   //  Spill registers  //
@@ -213,7 +217,7 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
     // - The address generator generated an AXI AW request for this write beat
     // - The AXI subsystem is ready to accept this W beat
     if (vinsn_issue_valid && &stu_operand_valid && (vinsn_issue_q.vm || (|mask_valid_i)) &&
-        axi_addrgen_req_valid_i && !axi_addrgen_req_i.is_load && axi_w_ready_i) begin
+        axi_addrgen_req_valid_i && !axi_addrgen_req_i.is_load && axi_w_ready_i) begin // DEBUG SEM PROJ
 
       // Account for the issued bytes
       // How many bytes are valid in this VRF word

@@ -555,7 +555,7 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
           //   eff_axi_dw_d     = {1'b0, narrow_axi_data_bwidth};
           //   eff_axi_dw_log_d = zeroes_cnt;
           // end else begin
-          
+
             eff_axi_dw_d     = AxiDataWidth/8;
             eff_axi_dw_log_d = $clog2(AxiDataWidth/8);
          
@@ -622,6 +622,12 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
               burst_length = 256;
               burst_length = (((axi_addrgen_q.len << int'(axi_addrgen_q.vew))-1) >> eff_axi_dw_log_q) + 1;
               debug_len = burst_length;
+
+              // SEM PROJ DEBUG
+              // LENGTH ACCOUNTS FOR MISALIGNMENT
+              if ((axi_addrgen_d.addr[$clog2(AxiDataWidth/8)-1:0] != '0) && !axi_addrgen_d.is_load) begin
+                burst_length = ((((axi_addrgen_q.len + axi_addrgen_d.addr[$clog2(AxiDataWidth/8)-1:0])<< int'(axi_addrgen_q.vew))-1) >> eff_axi_dw_log_q) + 1;
+              end
 
               // The above burst length is only used for vldu and vstu to know how many packets to receive.
               // The AXI request to Memory in Global Ld-St unit (GLSU) takes care of the maximum burst limit.
