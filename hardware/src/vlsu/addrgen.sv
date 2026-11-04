@@ -64,9 +64,6 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
     is_addr_error = |(addr & (elen_t'(1 << vew) - 1));
   endfunction // is_addr_error
 
-  // SEM PROJ
-  vlen_t debug_len;
-
   ////////////////////
   //  PE Req Queue  //
   ////////////////////
@@ -100,12 +97,6 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
   logic             axi_addrgen_queue_full;
   logic             axi_addrgen_queue_empty;
 
-  logic axi_addrgen_queue_pop;
-
-  // SEM PROJ
-  // DOESNT POP FOR MISALIGNED ST
-  assign axi_addrgen_queue_pop = ldu_axi_addrgen_req_ready_i || stu_axi_addrgen_req_ready_i;
-
   fifo_v3 #(
     .DEPTH(VaddrgenInsnQueueDepth),
     .dtype(addrgen_axi_req_t     )
@@ -118,7 +109,7 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
     .push_i    (axi_addrgen_queue_push                                   ),
     .full_o    (axi_addrgen_queue_full                                   ),
     .data_o    (axi_addrgen_req_o                                        ),
-    .pop_i     (axi_addrgen_queue_pop),
+    .pop_i     (ldu_axi_addrgen_req_ready_i | stu_axi_addrgen_req_ready_i),
     .empty_o   (axi_addrgen_queue_empty                                  ),
     .usage_o   (/* Unused */                                             )
   );
@@ -542,11 +533,6 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
 
           // In case of a misaligned store, reduce the effective width of the AXI transaction,
           // since the store unit does not support misalignments between the AXI bus and the lanes
-
-
-          // SEM PROJ
-          // REMOVE CURRENT MISAL GESTION
-
           // if ((axi_addrgen_d.addr[$clog2(AxiDataWidth/8)-1:0] != '0) && !axi_addrgen_d.is_load)
           // begin
           //   // Calculate the start and the end addresses in the AXI_ADDRGEN_MISALIGNED state
@@ -555,12 +541,9 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
           //   eff_axi_dw_d     = {1'b0, narrow_axi_data_bwidth};
           //   eff_axi_dw_log_d = zeroes_cnt;
           // end else begin
-
             eff_axi_dw_d     = AxiDataWidth/8;
             eff_axi_dw_log_d = $clog2(AxiDataWidth/8);
-         
-         // end
-
+          //end
 
           // For VLSE, each cluster should have different address to issue:
           // For cluster X, the initial address should be (baseaddr_cluster0 + stride*(cluster_id_i*NrLanes))
@@ -621,13 +604,6 @@ module addrgen import ara_pkg::*; import rvv_pkg::*; #(
               // 1 - AXI bursts are at most 256 beats long.
               burst_length = 256;
               burst_length = (((axi_addrgen_q.len << int'(axi_addrgen_q.vew))-1) >> eff_axi_dw_log_q) + 1;
-              debug_len = burst_length;
-
-              // SEM PROJ DEBUG
-              // LENGTH ACCOUNTS FOR MISALIGNMENT
-              if ((axi_addrgen_d.addr[$clog2(AxiDataWidth/8)-1:0] != '0) && !axi_addrgen_d.is_load) begin
-                burst_length = ((((axi_addrgen_q.len + axi_addrgen_d.addr[$clog2(AxiDataWidth/8)-1:0])<< int'(axi_addrgen_q.vew))-1) >> eff_axi_dw_log_q) + 1;
-              end
 
               // The above burst length is only used for vldu and vstu to know how many packets to receive.
               // The AXI request to Memory in Global Ld-St unit (GLSU) takes care of the maximum burst limit.

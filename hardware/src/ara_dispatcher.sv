@@ -15,7 +15,10 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     // External support for vfrec7, vfrsqrt7
     parameter fpext_support_e        FPExtSupport = FPExtSupportEnable,
     // Support for fixed-point data types
-    parameter fixpt_support_e        FixPtSupport = FixedPointEnable
+    parameter fixpt_support_e        FixPtSupport = FixedPointEnable,
+    // Detect misaligned stores
+    parameter int  unsigned AxiDataWidth = 0,
+    localparam int           unsigned AxiDataBytes        = AxiDataWidth/8
   ) (
     // Clock and reset
     input  logic                                 clk_i,
@@ -151,6 +154,7 @@ endfunction
   // SEM PROJ :
   logic reshuffle_pending_d, reshuffle_pending_q;
   logic reshuffle_complete_d, reshuffle_complete_q;
+  logic is_store_misaligned;
 
   // The backend can either be in normal operation, waiting for Ara to be idle before issuing new
   // operations, or injecting a reshuffling uop.
@@ -2913,6 +2917,8 @@ endfunction
           // The current vector length refers to the target EEW!
           // Vector stores never re-shuffle the source register!
 
+          // SEM PROJECT : DETECT MISALIGN
+
           riscv::OpcodeStoreFp: begin
             // Instruction is of one of the RVV types
             automatic rvv_instruction_t insn = rvv_instruction_t'(acc_req_i.insn.instr);
@@ -2934,8 +2940,16 @@ endfunction
             ara_req_d.use_vs1   = 1'b1;
             ara_req_d.eew_vs1   = eew_q[insn.vmem_type.rd]; // This is the vs1 EEW
             ara_req_d.vm        = insn.vmem_type.vm;
-            ara_req_d.scalar_op = acc_req_i.rs1;
+            // ara_req_d.scalar_op = acc_req_i.rs1; // SEM PROJ : ADDRESS
             ara_req_valid_d     = 1'b1;
+
+            // SEM PROJ : ALIGN
+            if (acc_req_i.rs1%(AxiDataBytes) != '0) begin
+              is_store_misaligned = 1;
+              ara_req_d.scalar_op = acc_req_i.rs1 - acc_req_i.rs1%(AxiDataBytes);
+            end else begin
+              ara_req_d.scalar_op = acc_req_i.rs1;
+            end
 
             // Decode the element width
             // Indexed memory operations follow a different rule

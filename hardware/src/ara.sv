@@ -114,7 +114,8 @@ module ara import ara_pkg::*; import rvv_pkg::*; #(
   vxrm_t     [NrLanes-1:0]      alu_vxrm;
 
   ara_dispatcher #(
-    .NrLanes     (NrLanes    )
+    .NrLanes     (NrLanes    ),
+    .AxiDataWidth(AxiDataWidth)
   ) i_dispatcher (
     .clk_i             (clk_i           ),
     .rst_ni            (rst_ni          ),

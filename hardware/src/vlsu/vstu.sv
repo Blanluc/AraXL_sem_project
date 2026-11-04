@@ -65,15 +65,6 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
   import axi_pkg::beat_upper_byte;
   import axi_pkg::BURST_INCR;
 
-  // SEM PROJ :
-  // DEBUG
-  // (axi_addrgen_req_i.addr % AxiDataWidth/8);
-
-  axi_pkg::len_t debug_len;
-
-
-
-
   ///////////////////////
   //  Spill registers  //
   ///////////////////////
@@ -217,7 +208,7 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
     // - The address generator generated an AXI AW request for this write beat
     // - The AXI subsystem is ready to accept this W beat
     if (vinsn_issue_valid && &stu_operand_valid && (vinsn_issue_q.vm || (|mask_valid_i)) &&
-        axi_addrgen_req_valid_i && !axi_addrgen_req_i.is_load && axi_w_ready_i) begin // DEBUG SEM PROJ
+        axi_addrgen_req_valid_i && !axi_addrgen_req_i.is_load && axi_w_ready_i) begin
 
       // Account for the issued bytes
       // How many bytes are valid in this VRF word
@@ -263,8 +254,7 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
       // Account for the beat we sent
       len_d         = len_q + 1;
       // We wrote all the beats for this AW burst
-      //if (((axi_addrgen_req_i.addr % (AxiDataWidth/8))!=0) || $unsigned(len_d) == axi_pkg::len_t'($unsigned(axi_addrgen_req_i.len) + 1)) begin // SEM PROJ DEBUG
-      if ($unsigned(len_d) == axi_pkg::len_t'($unsigned(axi_addrgen_req_i.len) + 1)) begin // SEM PROJ DEBUG
+      if ($unsigned(len_d) == axi_pkg::len_t'($unsigned(axi_addrgen_req_i.len) + 1)) begin
         axi_w_o.last            = 1'b1;
         // Ask for another burst by the address generator
         axi_addrgen_req_ready_o = 1'b1;
