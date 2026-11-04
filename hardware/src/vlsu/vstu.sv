@@ -40,6 +40,7 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
     output logic                           store_pending_o,
     output logic                           store_complete_o,
     output logic                           rs_store_complete_o,
+    output logic                           misaligned_store_complete_o,
     // Interface with the main sequencer
     input  pe_req_t                        pe_req_i,
     input  logic                           pe_req_valid_i,
@@ -194,6 +195,7 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
     mask_ready_o            = 1'b0;
     store_complete_o        = 1'b0;
     rs_store_complete_o        = 1'b0;
+    misaligned_store_complete_o        = 1'b0;
 
     // Inform the main sequencer if we are idle
     pe_req_ready_o = !vinsn_queue_full;
@@ -307,6 +309,11 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
         store_complete_o = 1'b1;
         if (vinsn_queue_q.vinsn[vinsn_queue_d.commit_pnt].is_reshuffle) begin
           rs_store_complete_o = 1'b1;
+
+        end
+
+        if (vinsn_queue_q.vinsn[vinsn_queue_d.commit_pnt].is_misaligned_store) begin
+          misaligned_store_complete_o = 1'b1;
 
         end
 

@@ -16,6 +16,7 @@ void TEST_MISALIGNED_STORE(void) {
   // Test 1: 1-byte offset (not 2-byte aligned for e16)
   VSET(16, e16, m1);
   VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8);
+  VLOAD_16(v2, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8);
   asm volatile("vse16.v v1, (%0)" ::"r"(&buf[1]));
   __asm__ volatile("fence");
   for (int i = 0; i < 16; i++) {

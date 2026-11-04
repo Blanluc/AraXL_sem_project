@@ -209,7 +209,7 @@ fifo_v3 # (
 
 // Fifo to track the request metadata when b signal arrives
 // It could happen that the GLSU proceeds to the next instruction when the b arrives,
-// this FIFO tracks the vector length to send the b signal to the desired clusters
+// this FIFO tracks the vector length to send the b signal to the desired clusters // SEM PROJ :
 logic b_fifo_pop_o, b_fifo_push_i;
 logic b_fifo_full_o, b_fifo_empty_o;
 indexed_op_metadata_t b_fifo_idx_metadata;
@@ -244,7 +244,7 @@ always_comb begin : p_global_ldst
   vl_ldst_rd_d = vl_ldst_rd_q;
   vl_ldst_wr_d = vl_ldst_wr_q;
 
-  req_wrmem = '0; 
+  req_wrmem = '0; // THIS IS WHAT IS ASSIGNED TO OUTPUT
   req_wrmem.aw_valid = 1'b0;
 
   fifo_push_i = 1'b0;
@@ -265,18 +265,22 @@ always_comb begin : p_global_ldst
 
   ///// WRITE REQUESTS /////
 
+  // SEM PROJ :
+  // MODIFY WRITE REQUEST TO ACCOUNT FOR OFFSET
+  // BUT NEED TO MAKE IT SO IT WORKS WITH W SIGNAL
+
   // If we have an indexed load, choose the axi request from the desired cluster instead of cluster-0.
   // Start with cluster-0 and update the cluster by 1 if we have processed NrLanes requests and we have more requests to process
   if (axi_req_i[cluster_aw_q].aw_valid && w_req_ready) begin
     req_d.aw = axi_req_i[cluster_aw_q].aw;
     w_req_valid_d = 1'b1;
     vew_d = cluster_metadata_i.vew;
-    vl_ldst_wr_d = (vl_ldst_wr_q == '0) ? cluster_metadata_i.vl : vl_ldst_wr_q;
+    vl_ldst_wr_d = (vl_ldst_wr_q == '0) ? cluster_metadata_i.vl : vl_ldst_wr_q; // WHAT IS THIS
 
     // If not an indexed load, always use cluster 0
     if (!(cluster_metadata_i.op inside {VSXE, VSSE})) begin
       cluster_aw_d = '0;
-    end else begin
+    end else begin // ONLY FOR INDEXED
       // Increment request counter for current cluster
       lane_aw_d = lane_aw_q + 1;
       
@@ -292,6 +296,8 @@ always_comb begin : p_global_ldst
     end
   end
 
+  // SEM PROJ : LOOK HERE
+
   if (w_req_valid_d==1'b1 && axi_resp_i.aw_ready) begin
     automatic logic [8:0] w_burst_length;
     automatic axi_addr_t wr_aligned_start_addr_d, wr_aligned_next_start_addr_d, wr_aligned_end_addr_d;
@@ -299,18 +305,22 @@ always_comb begin : p_global_ldst
     automatic vlen_cluster_t vl_req = (cluster_metadata_i.op inside {VSXE, VSSE}) ? 1 : vl_ldst_wr_d;
 
     req_wrmem.aw        = req_d.aw;             // Copy request state
-    req_wrmem.aw.size   = size_axi;
+    req_wrmem.aw.size   = size_axi; // localparam int size_axi = $clog2(AxiDataWidth/8),  WE ALWAYS DO A TRANSFER OF ENTIRE AXI SIZE = 2^5 * 8  = 256 BITS
     req_wrmem.aw.cache  = CACHE_MODIFIABLE;
     req_wrmem.aw.burst  = BURST_INCR;
     req_wrmem.aw_valid = 1'b1;
 
+    // SEM PROJ : LOOK HERE
+
+    // IF WE WANT TO ADD BURSTS, MOST LIKELY HAVE TO ADD THE OFFSET TO wr_aligned_next_start_addr_d
+
     // Check if the address is unaligned for AxiDataWidth bits
     wr_aligned_start_addr_d = aligned_addr(req_wrmem.aw.addr, size_axi);
     wr_aligned_next_start_addr_d = aligned_addr(req_wrmem.aw.addr + (vl_req << vew_d) -1, size_axi) + AxiDataWidth/8;
-    wr_aligned_end_addr_d = wr_aligned_next_start_addr_d - 1;
+    wr_aligned_end_addr_d = wr_aligned_next_start_addr_d - 1; // SEM PROJ : WHAT IS THIS
     wr_next_2page_msb_d = wr_aligned_start_addr_d[AxiAddrWidth-1:12] + 1;
     // 1 - Check for 4KB page boundary
-    if (wr_aligned_start_addr_d[AxiAddrWidth-1:12] != wr_aligned_end_addr_d[AxiAddrWidth-1:12]) begin
+    if (wr_aligned_start_addr_d[AxiAddrWidth-1:12] != wr_aligned_end_addr_d[AxiAddrWidth-1:12]) begin // SEM PROJ : WHAT?
       wr_aligned_end_addr_d        = {wr_aligned_start_addr_d[AxiAddrWidth-1:12], 12'hFFF};
       wr_aligned_next_start_addr_d = {                       wr_next_2page_msb_d, 12'h000};
     end
@@ -323,12 +333,13 @@ always_comb begin : p_global_ldst
       wr_aligned_end_addr_d = wr_aligned_next_start_addr_d - 1;
     end
 
-    req_wrmem.aw.len = w_burst_length - 1;
+    req_wrmem.aw.len = w_burst_length - 1; // SEM PROJ : IMPORTANT : WHERE WE SET NUMBER OF BEATS
 
+    // SEM PROJ : WHAT IS THIS
     vl_w_done = (wr_aligned_next_start_addr_d - req_d.aw.addr) >> int'(vew_d);
     
     if (!(cluster_metadata_i.op inside {VSXE, VSSE})) begin
-      if (vl_ldst_wr_d > vl_w_done) begin
+      if (vl_ldst_wr_d > vl_w_done) begin // REALLY NEED TO UNDERSTAND WHAT vl_ldst_wr_d is
         vl_ldst_wr_d -= vl_w_done;
         req_d.aw.addr = wr_aligned_next_start_addr_d;     // Update request state
         w_req_valid_d = 1'b1;
@@ -355,11 +366,12 @@ always_comb begin : p_global_ldst
     end 
 
     // Push vector length and op info into the fifo to read later when responses come back. 
-    // This is needed to know how many responses to expect for each vector load and when a vector load is completed.
+    // This is needed to know how many responses to expect for each vector load and when a vector load is completed. // SEM PROJ : LOAD OR ST?
     idx_metadata_i.vl = cluster_metadata_i.vl;
     idx_metadata_i.op = cluster_metadata_i.op;
     idx_metadata_i.vew = vew_d;
   end
+  // SEM PROJ : LOOK HERE : req_wrmem IS WHERE WE SET UP OUR REQUEST
   axi_req_o.aw = req_wrmem.aw;
   axi_req_o.aw_valid = req_wrmem.aw_valid;
 
@@ -606,6 +618,17 @@ always_comb begin : p_global_ldst
   //   AXI W   //
   ///////////////
 
+  // SEM PROJ :
+  // FOR MISALIGNED STORES, WE NEED THE FOLLOWING :
+
+  // 1) TOTAL VECTOR LENGTH
+  // 2) MISALIGNMENT OFFSET
+
+  // WHAT I NEED TO DO
+
+  // 1) SUM THE MISSALIGNMENT OFFSET TO THE TOTAL VECTOR LENGTH
+  // 2) RESPOND TO CLUSTERS ONLY WHEN EVERYTHING IS DONE
+
   // Initialize cluster pointer and lane counter for write data
   cluster_w_d = cluster_w_q;
   lane_w_d = lane_w_q;
@@ -655,6 +678,8 @@ always_comb begin : p_global_ldst
 
   axi_req_o.w_valid = 1'b0;
   axi_req_o.w = '0;
+
+  // SEM PROJECT : MANIPULATE w_valid_d FOR MISALIGNED ST
   
   if (w_valid_d) begin
     // Have a valid write data to send to System AXI
@@ -671,6 +696,11 @@ always_comb begin : p_global_ldst
       axi_req_o.w.data[0 +: ClusterAxiDataWidth] = axi_req_data_d[cluster_w_q].w.data;
       axi_req_o.w.strb[0 +: ClusterAxiDataWidth/8] = axi_req_data_d[cluster_w_q].w.strb;
     end
+
+    // SEM PROJ : ONLY WHEN ALL IS DONE WE RESPOND TO CLUSTERS BUT THIS ISNT CLUSTERS THIS IS AXI
+
+    // HANDSHAKE => AXI READY = UPDATE POINTER
+    //
 
     if (axi_resp_i.w_ready) begin
       // If downstream AXI is ready to receive request only then update the
