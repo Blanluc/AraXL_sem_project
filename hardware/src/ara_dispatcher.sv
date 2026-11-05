@@ -424,7 +424,7 @@ endfunction
         // ara_req_d.vl_cluster   = ara_req_d.vl << num_clusters_i;
         // ara_req_d.use_eew1     = 1'b0;
         // ara_req_d.scale_vl     = 1'b1;
-        ara_req_d.is_misaligned_store = 1'b1;
+        //ara_req_d.is_misaligned_store = 1'b1;
 
         // reshuffle_pending_d    = 1;
 
@@ -3011,16 +3011,9 @@ endfunction
             ara_req_d.use_vs1   = 1'b1;
             ara_req_d.eew_vs1   = eew_q[insn.vmem_type.rd]; // This is the vs1 EEW
             ara_req_d.vm        = insn.vmem_type.vm;
-            // ara_req_d.scalar_op = acc_req_i.rs1; // SEM PROJ : ADDRESS
+            ara_req_d.scalar_op = acc_req_i.rs1; // SEM PROJ : ADDRESS
             ara_req_valid_d     = 1'b1;
 
-            // SEM PROJ : ALIGN
-            if (acc_req_i.rs1%(AxiDataBytes) != '0) begin
-              is_store_misaligned = 1;
-              ara_req_d.scalar_op = acc_req_i.rs1 - acc_req_i.rs1%(AxiDataBytes);
-            end else begin
-              ara_req_d.scalar_op = acc_req_i.rs1;
-            end
 
             // Decode the element width
             // Indexed memory operations follow a different rule
@@ -3187,6 +3180,21 @@ endfunction
               ara_req_valid_d  = 1'b1;
             end
 
+            // Handle Misaligned Stores
+            if (acc_req_i.rs1%(AxiDataBytes) != 0 && ara_req_d.op == VSE) begin
+
+              // Account for cluster in transaction size
+              // The two next lines trigger the 'error' in the align stage
+              ara_req_d.vl_cluster = ara_req_d.vl_cluster + (acc_req_i.rs1%(AxiDataBytes) >> ara_req_d.vtype.vsew);
+              ara_req_d.vl         = compute_cluster_vl(ara_req_d.vl_cluster, 1'b0, cluster_id_i, NrLanes, NrLanes << num_clusters_i);
+              ara_req_d.scalar_op = acc_req_i.rs1 - (acc_req_i.rs1%(AxiDataBytes));
+              
+              ara_req_d.is_misaligned_store = 1'b1;
+
+              // Todo : If new vector too long, inject second store
+
+            end
+
             // Wait until the back-end answers to acknowledge those instructions
             if (ara_resp_valid_i) begin
               acc_resp_o.req_ready  = 1'b1;
@@ -3198,7 +3206,7 @@ endfunction
                 vstart_d = ara_resp_i.error_vl;
             end
 
-            if (ara_req_d.op == VSE && ) begin
+            if (ara_req_d.op == VSE ) begin
               ara_req_prev_st_d = ara_req_d;
             end
 
@@ -3443,16 +3451,15 @@ endfunction
       end
 
       //if (cluster_id_i != 1) begin
-      if (ara_req_d.op == VSE && !misaligned_store_issued_q) begin
-        misaligned_store_issued_d =1;
-        acc_resp_o.req_ready  = 1'b0;
-        acc_resp_o.resp_valid = 1'b0;
-        ara_req_valid_d  = 1'b0;
-        if (~store_pending_i) begin
-          state_d = MISALIGNED_ST;
-        end
-
-      end
+      // if (ara_req_d.op == VSE && !misaligned_store_issued_q) begin
+      //   misaligned_store_issued_d =1;
+      //   acc_resp_o.req_ready  = 1'b0;
+      //   acc_resp_o.resp_valid = 1'b0;
+      //   ara_req_valid_d  = 1'b0;
+      //   if (~store_pending_i) begin
+      //     state_d = MISALIGNED_ST;
+      //   end
+      // end
 
       // Reshuffle if at least one of the three registers needs a reshuffle
       if (|reshuffle_req_d && !reshuffle_pending_q) begin

@@ -330,6 +330,9 @@ package ara_pkg;
     
     // Indicates if request is reshuffle
     logic is_reshuffle;
+
+    // Indicates if request is ms
+    logic is_misaligned_store;
   } ara_req_t;
 
   typedef struct packed {
@@ -438,6 +441,9 @@ package ara_pkg;
 
     // Reshuffle variable
     logic is_reshuffle;
+
+    // Indicates if request is ms
+    logic is_misaligned_store;
   } pe_req_t;
 
   typedef struct packed {

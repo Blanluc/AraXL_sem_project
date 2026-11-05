@@ -312,11 +312,6 @@ module vstu import ara_pkg::*; import rvv_pkg::*; #(
 
         end
 
-        if (vinsn_queue_q.vinsn[vinsn_queue_d.commit_pnt].is_misaligned_store) begin
-          misaligned_store_complete_o = 1'b1;
-
-        end
-
         pe_resp.vinsn_done[vinsn_commit.id] = 1'b1;
 
         // Update the commit counters and pointers
