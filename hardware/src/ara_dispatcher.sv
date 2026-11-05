@@ -158,6 +158,7 @@ endfunction
   logic reshuffle_complete_d, reshuffle_complete_q;
   logic is_store_misaligned;
   logic misaligned_store_issued_d, misaligned_store_issued_q;
+  vlen_t store_offset;
 
   // The backend can either be in normal operation, waiting for Ara to be idle before issuing new
   // operations, or injecting a reshuffling uop.
@@ -301,6 +302,7 @@ endfunction
   // SEM PROJ
   vlen_t  vl_temp;
   logic from_ld;
+  logic is_store_too_long;
 
   always_comb begin: p_decoder
     // Default values
@@ -313,6 +315,8 @@ endfunction
     eew_valid_d  = eew_valid_q;
     lmul_vs2     = vtype_q.vlmul;
     lmul_vs1     = vtype_q.vlmul;
+
+    store_offset = acc_req_i.rs1%(AxiDataBytes);
 
     // SEM PROJ
     reshuffle_pending_d =reshuffle_pending_q;
@@ -648,7 +652,8 @@ endfunction
     if (state_d == NORMAL_OPERATION && state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST && state_q != RESHUFFLE_WAIT) begin
 
       ara_req_d.is_reshuffle = 1'b0;
-
+      ara_req_d.store_offset = '0;
+      
       if (acc_req_i.req_valid && ara_req_ready_i && acc_req_i.resp_ready) begin
         // Decoding
         is_decoding = 1'b1;
@@ -3181,17 +3186,43 @@ endfunction
             end
 
             // Handle Misaligned Stores
-            if (acc_req_i.rs1%(AxiDataBytes) != 0 && ara_req_d.op == VSE) begin
+            if (store_offset != 0 && ara_req_d.op == VSE) begin
+              automatic int unsigned extra       = store_offset >> ara_req_d.vtype.vsew;
+              automatic int unsigned vlmax_st    = (VLENB >> ara_req_d.vtype.vsew) << num_clusters_i;  // EMUL = 1, all clusters
 
               // Account for cluster in transaction size
               // The two next lines trigger the 'error' in the align stage
-              ara_req_d.vl_cluster = ara_req_d.vl_cluster + (acc_req_i.rs1%(AxiDataBytes) >> ara_req_d.vtype.vsew);
+              ara_req_d.vl_cluster = ara_req_d.vl_cluster + (store_offset >> ara_req_d.vtype.vsew);
               ara_req_d.vl         = compute_cluster_vl(ara_req_d.vl_cluster, 1'b0, cluster_id_i, NrLanes, NrLanes << num_clusters_i);
-              ara_req_d.scalar_op = acc_req_i.rs1 - (acc_req_i.rs1%(AxiDataBytes));
-              
-              ara_req_d.is_misaligned_store = 1'b1;
+              ara_req_d.scalar_op = acc_req_i.rs1 - store_offset;
+
+              ara_req_d.store_offset = store_offset;
 
               // Todo : If new vector too long, inject second store
+
+              // not sure
+              unique case (ara_req_d.emul)
+                LMUL_2:   vlmax_st <<= 1;
+                LMUL_4:   vlmax_st <<= 2;
+                LMUL_8:   vlmax_st <<= 3;
+                LMUL_1_2: vlmax_st >>= 1;
+                LMUL_1_4: vlmax_st >>= 2;
+                LMUL_1_8: vlmax_st >>= 3;
+                default:;
+              endcase
+
+              is_store_too_long = (ara_req_d.vl_cluster + extra) > vlmax_st;
+
+              if (ara_req_d.op == VSE && !misaligned_store_issued_q && is_store_too_long) begin
+                misaligned_store_issued_d =1;
+                acc_resp_o.req_ready  = 1'b0;
+                acc_resp_o.resp_valid = 1'b0;
+                ara_req_valid_d  = 1'b0;
+                if (~store_pending_i) begin
+                  state_d = MISALIGNED_ST;
+                end
+              end
+              
 
             end
 

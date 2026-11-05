@@ -85,6 +85,7 @@ assign cluster_metadata_o.vew = vew_d;
 assign cluster_metadata_o.vl = cluster_metadata_i.vl; 
 assign cluster_metadata_o.use_eew1 = cluster_metadata_i.use_eew1;
 assign cluster_metadata_o.op = cluster_metadata_i.op;
+assign cluster_metadata_o.store_offset = cluster_metadata_i.store_offset;
 
 cluster_axi_resp_t  [NrClusters-1:0] axi_resp_d, axi_resp_q;
 

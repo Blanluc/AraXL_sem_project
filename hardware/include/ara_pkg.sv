@@ -332,7 +332,7 @@ package ara_pkg;
     logic is_reshuffle;
 
     // Indicates if request is ms
-    logic is_misaligned_store;
+    vlen_t store_offset;
   } ara_req_t;
 
   typedef struct packed {
@@ -443,7 +443,7 @@ package ara_pkg;
     logic is_reshuffle;
 
     // Indicates if request is ms
-    logic is_misaligned_store;
+    vlen_t store_offset;
   } pe_req_t;
 
   typedef struct packed {
@@ -460,6 +460,7 @@ package ara_pkg;
     logic             use_eew1;
     ara_op_e          op;
     logic             is_reshuffle;
+    vlen_t            store_offset;
   } cluster_metadata_t;
 
   /* The VRF data is stored into the lanes in a shuffled way, similar to how it was done
