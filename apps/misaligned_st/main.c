@@ -79,9 +79,9 @@ int main(void) {
   INIT_CHECK();
   enable_vec();
 
-  // TEST_MISALIGNED_STORE();
+  TEST_MISALIGNED_STORE();
   //TEST_MISALIGNED_STORE_2();
-  TEST_MISALIGNED_STORE_3();
+  //TEST_MISALIGNED_STORE_3();
 
   EXIT_CHECK();
 }

@@ -270,10 +270,14 @@ always_comb begin : p_global_ldst
   // MODIFY WRITE REQUEST TO ACCOUNT FOR OFFSET
   // BUT NEED TO MAKE IT SO IT WORKS WITH W SIGNAL
 
+  // BEAT SIZE : 256 BITS 
+
   // If we have an indexed load, choose the axi request from the desired cluster instead of cluster-0.
   // Start with cluster-0 and update the cluster by 1 if we have processed NrLanes requests and we have more requests to process
   if (axi_req_i[cluster_aw_q].aw_valid && w_req_ready) begin
     req_d.aw = axi_req_i[cluster_aw_q].aw;
+    // DEBUG
+    // req_d.aw.addr = axi_req_i[cluster_aw_q].aw.addr - (axi_req_i[cluster_aw_q].aw.addr%(AxiDataWidth/8));
     w_req_valid_d = 1'b1;
     vew_d = cluster_metadata_i.vew;
     vl_ldst_wr_d = (vl_ldst_wr_q == '0) ? cluster_metadata_i.vl : vl_ldst_wr_q; // WHAT IS THIS

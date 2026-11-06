@@ -3186,45 +3186,45 @@ endfunction
             end
 
             // Handle Misaligned Stores
-            if (store_offset != 0 && ara_req_d.op == VSE) begin
-              automatic int unsigned extra       = store_offset >> ara_req_d.vtype.vsew;
-              automatic int unsigned vlmax_st    = (VLENB >> ara_req_d.vtype.vsew) << num_clusters_i;  // EMUL = 1, all clusters
+            // if (store_offset != 0 && ara_req_d.op == VSE) begin
+            //   automatic int unsigned extra       = store_offset >> ara_req_d.vtype.vsew;
+            //   automatic int unsigned vlmax_st    = (VLENB >> ara_req_d.vtype.vsew) << num_clusters_i;  // EMUL = 1, all clusters
 
-              // Account for cluster in transaction size
-              // The two next lines trigger the 'error' in the align stage
-              ara_req_d.vl_cluster = ara_req_d.vl_cluster + (store_offset >> ara_req_d.vtype.vsew);
-              ara_req_d.vl         = compute_cluster_vl(ara_req_d.vl_cluster, 1'b0, cluster_id_i, NrLanes, NrLanes << num_clusters_i);
-              ara_req_d.scalar_op = acc_req_i.rs1 - store_offset;
+            //   // Account for cluster in transaction size
+            //   // The two next lines trigger the 'error' in the align stage
+            //   ara_req_d.vl_cluster = ara_req_d.vl_cluster + (store_offset >> ara_req_d.vtype.vsew);
+            //   ara_req_d.vl         = compute_cluster_vl(ara_req_d.vl_cluster, 1'b0, cluster_id_i, NrLanes, NrLanes << num_clusters_i);
+            //   ara_req_d.scalar_op = acc_req_i.rs1 - store_offset;
 
-              ara_req_d.store_offset = store_offset;
+            //   ara_req_d.store_offset = store_offset;
 
-              // Todo : If new vector too long, inject second store
+            //   // Todo : If new vector too long, inject second store
 
-              // not sure
-              unique case (ara_req_d.emul)
-                LMUL_2:   vlmax_st <<= 1;
-                LMUL_4:   vlmax_st <<= 2;
-                LMUL_8:   vlmax_st <<= 3;
-                LMUL_1_2: vlmax_st >>= 1;
-                LMUL_1_4: vlmax_st >>= 2;
-                LMUL_1_8: vlmax_st >>= 3;
-                default:;
-              endcase
+            //   // not sure
+            //   unique case (ara_req_d.emul)
+            //     LMUL_2:   vlmax_st <<= 1;
+            //     LMUL_4:   vlmax_st <<= 2;
+            //     LMUL_8:   vlmax_st <<= 3;
+            //     LMUL_1_2: vlmax_st >>= 1;
+            //     LMUL_1_4: vlmax_st >>= 2;
+            //     LMUL_1_8: vlmax_st >>= 3;
+            //     default:;
+            //   endcase
 
-              is_store_too_long = (ara_req_d.vl_cluster + extra) > vlmax_st;
+            //   is_store_too_long = (ara_req_d.vl_cluster + extra) > vlmax_st;
 
-              if (ara_req_d.op == VSE && !misaligned_store_issued_q && is_store_too_long) begin
-                misaligned_store_issued_d =1;
-                acc_resp_o.req_ready  = 1'b0;
-                acc_resp_o.resp_valid = 1'b0;
-                ara_req_valid_d  = 1'b0;
-                if (~store_pending_i) begin
-                  state_d = MISALIGNED_ST;
-                end
-              end
+            //   if (ara_req_d.op == VSE && !misaligned_store_issued_q && is_store_too_long) begin
+            //     misaligned_store_issued_d =1;
+            //     acc_resp_o.req_ready  = 1'b0;
+            //     acc_resp_o.resp_valid = 1'b0;
+            //     ara_req_valid_d  = 1'b0;
+            //     if (~store_pending_i) begin
+            //       state_d = MISALIGNED_ST;
+            //     end
+            //   end
               
 
-            end
+            // end
 
             // Wait until the back-end answers to acknowledge those instructions
             if (ara_resp_valid_i) begin
