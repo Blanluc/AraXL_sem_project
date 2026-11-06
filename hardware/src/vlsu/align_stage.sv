@@ -63,6 +63,14 @@ pnt_t rd_req_pnt_d, rd_req_pnt_q;
 pnt_t [NumStages-1:0] rd_resp_pnt_d, rd_resp_pnt_q, rd_resp_pnt_d_del, rd_resp_pnt_q_del;
 cnt_t rd_cnt_d, rd_cnt_q;
 
+// SEM PROJ
+logic [AxiDataWidth-1:0] shifted_data;
+logic [AxiDataBytes-1:0] shifted_strb;
+logic [AxiDataWidth-1:0] spill_data_q, spill_data_d, spill_data_temp;
+logic [AxiDataBytes-1:0] spill_strb_q, spill_strb_d, spill_strb_temp;
+logic [$clog2(AxiDataBytes)-1:0] off;
+
+
 logic [NumStages:0] axi_req_cut_ready;
 axi_resp_t [NumStages:0] axi_resp_i_cut;
 axi_resp_t [NumStages-1:0] axi_resp_o_cut;
@@ -398,6 +406,10 @@ assign wr_tracker_full = (wr_cnt_q == NumTrackers);
 assign wr_tracker_empty = (wr_cnt_q == 0);
 assign axi_resp_o.aw_ready = axi_resp_i.aw_ready && !wr_tracker_full;
 
+// SEM PROJ
+assign off = wr_track_q[wr_commit_pnt_q].off;
+
+
 // SEM PROJ DEBUG
 // logic [NumStages:0] axi_req_cut_ready_debug;
 // axi_req_t [NumStages:0] axi_req_i_cut_debug;
@@ -434,6 +446,33 @@ assign axi_resp_o.aw_ready = axi_resp_i.aw_ready && !wr_tracker_full;
 //     );
 // end
 
+
+shift_w_beat #(
+    .AxiDataWidth( AxiDataWidth ), 
+    .AxiDataBytes( AxiDataBytes )
+  ) i_shift_w_beat (
+    .data_i    ( axi_req_i.w.data                       ),
+    .data_o    ( shifted_data                 ),
+    .strb_i    ( axi_req_i.w.strb                       ),
+    .strb_o    ( shifted_strb                   ),
+    .off_i     ( off),
+    .spill_data_i (spill_data_q),
+    .spill_data_o (spill_data_temp),
+    .spill_strb_i (spill_strb_q),
+    .spill_strb_o (spill_strb_temp)
+  );
+
+
+  // input  logic [DataBytes*8-1:0]       data_i,
+  // input  logic [DataBytes-1:0]         strb_i,
+  // input  logic [DataBytes*8-1:0]       spill_data_i,
+  // input  logic [DataBytes-1:0]         spill_strb_i,
+  // input  logic [$clog2(DataBytes)-1:0] off_i,
+  // output logic [DataBytes*8-1:0]       data_o,
+  // output logic [DataBytes-1:0]         strb_o,
+  // output logic [DataBytes*8-1:0]       spill_data_o,
+  // output logic [DataBytes-1:0]         spill_strb_o
+
 always_ff @(posedge clk_i or negedge rst_ni) begin
   if(~rst_ni) begin
     wr_track_q  <= '0;
@@ -450,6 +489,8 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     off_inst_q <= '0;
     flush_inst_q <= '0;
     flush_active_q <= '0;
+    spill_data_q <= '0;
+    spill_strb_q <= '0;
 
 
   end else begin
@@ -467,6 +508,8 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     off_inst_q <= off_inst_d;
     flush_inst_q <= flush_inst_d;
     flush_active_q <= flush_active_d;
+    spill_data_q <= spill_data_d;
+    spill_strb_q <= spill_strb_d;
     
   end
 end
@@ -500,6 +543,9 @@ always_comb begin
   flush_active_d = flush_active_q;
   off_inst_d   = off_inst_q;
   flush_inst_d = flush_inst_q;
+  //spill_data_i_d = spill_data_i_q;
+  spill_data_d = spill_data_q;
+  spill_strb_d = spill_strb_q;
 
   //////////////////////
   // Request Handling //
@@ -578,6 +624,9 @@ always_comb begin
   // SEM PROJ DEBUG
   // axi_req_cut_ready_debug[NumStages] = axi_resp_i.w_ready;
 
+  // SHIFTING LOGIC
+  // SPILL REGISTER STARTS WITH EVERYTHING SHIFTED TO THE RIGHT TO THE MAX
+
   
 
   // 4) MAKE WSTRB MASK
@@ -589,6 +638,10 @@ always_comb begin
 
   //if (axi_req_i.w_valid && axi_resp_o.w_ready) begin
   if (axi_req_i.w_valid && axi_resp_o.w_ready && !flush_active_q) begin
+    if (wr_track_q[wr_commit_pnt_q].op == VSE && wr_track_q[wr_commit_pnt_q].off != 0) begin
+      spill_data_d = spill_data_temp;
+      spill_strb_d = spill_strb_temp;
+    end
     wr_commit_len_d += 1;
     // If received all write packets for the request
     //if (wr_commit_len_q == wr_track_d[wr_commit_pnt_q].len) begin
@@ -641,10 +694,19 @@ always_comb begin
     `endif
   end
 
+  if (wr_track_q[wr_commit_pnt_q].op == VSE && off != 0) begin
+    axi_req_o.w.data = shifted_data;
+    axi_req_o.w.strb = shifted_strb;
+  end
+
   // SEM PROJ
   if (flush_active_q) begin
-    axi_req_o.w.data = '0;
-    axi_req_o.w.strb = '0;
+    // axi_req_o.w.data = '0;
+    // axi_req_o.w.strb = '0;
+    axi_req_o.w.data = spill_data_q;
+    axi_req_o.w.strb = spill_strb_q;
+    spill_data_d = '0;
+    spill_strb_d = '0;
     axi_req_o.w.last = 1'b1;
     if (axi_resp_i.w_ready) begin
       flush_active_d  = 1'b0;
@@ -659,6 +721,8 @@ always_comb begin
               axi_req_o.w.strb, axi_req_o.w.data);
     `endif
   end
+
+  
 
   // Ignore all b responses except last one
   axi_resp_o.b_valid = 1'b0;
@@ -755,21 +819,65 @@ module shift #(
 
 endmodule
 
-module shift_w #(
+// module shift_w #(
+//   parameter  int           unsigned AxiDataWidth        = 0,
+//   parameter  type                   axi_data_t          = logic,
+//   parameter  int           unsigned ShiftVal            = 0
+// ) (
+//   input axi_data_t data_i,
+//   input axi_data_t data_spill_i, 
+//   input logic [(AxiDataWidth/8)-1 :0] strb_i,
+//   input logic [(AxiDataWidth/8)-1 :0] strb_spill_i,
+//   output axi_data_t data_o,
+//   output axi_data_t data_spill_o,
+//   output logic [(AxiDataWidth/8)-1 :0] strb_o,
+//   output logic [(AxiDataWidth/8)-1 :0] strb_spill_o,
+
+
+//   input logic sld_valid
+// );
+//   // Spill shifted to the left
+//   // Data shifted to the left
+
+//   always_comb begin 
+//     data_o = data_i;
+//     data_spill_o = data_spill_i;
+//     strb_o = strb_i;
+//     strb_spill_o = strb_spill_i;
+//     if (sld_valid) begin
+//       data_o.w.data = {data_i.w.data[AxiDataWidth-1 - ShiftVal*8: 0], {ShiftVal*8{1'b0}} };
+//       data_spill_o = {data_spill_i[AxiDataWidth-1 - ShiftVal*8: 0], data_i.w.data[AxiDataWidth-1:AxiDataWidth-1 -(ShiftVal*8 -1)]};
+//       strb_o = {strb_i[(AxiDataWidth/8)-1 - ShiftVal: 0], {ShiftVal{1'b0}} };
+//       strb_spill_o = {strb_spill_i[(AxiDataWidth/8)-1 - ShiftVal: 0], strb_i[(AxiDataWidth/8)-1:(AxiDataWidth/8)-1-(ShiftVal-1)] };
+//     end
+
+//   end
+
+// endmodule
+
+module shift_w_beat #(
   parameter  int           unsigned AxiDataWidth        = 0,
-  parameter  type                   axi_data_t          = logic,
-  parameter  int           unsigned ShiftVal            = 0
+  parameter int unsigned AxiDataBytes = 0
 ) (
-  input axi_data_t data_i, 
-  output axi_data_t data_o,
-
-  input logic sld_valid
+  input  logic [AxiDataWidth-1:0]       data_i,
+  input  logic [AxiDataBytes-1:0]         strb_i,
+  input  logic [AxiDataWidth-1:0]       spill_data_i,
+  input  logic [AxiDataBytes-1:0]         spill_strb_i,
+  input  logic [$clog2(AxiDataBytes)-1:0] off_i,
+  output logic [AxiDataWidth-1:0]       data_o,
+  output logic [AxiDataBytes-1:0]         strb_o,
+  output logic [AxiDataWidth-1:0]       spill_data_o,
+  output logic [AxiDataBytes-1:0]         spill_strb_o
 );
+  logic [2*AxiDataWidth-1:0]        wide_d;
+  logic [2*AxiDataBytes-1:0] wide_s;
 
-  always_comb begin 
-    data_o = data_i;
-    if (sld_valid)
-      data_o.w.data = {data_i.w.data[ShiftVal*8-1:0], data_i.w.data[AxiDataWidth-1:ShiftVal*8]};
+  always_comb begin
+    wide_d = {{AxiDataWidth{1'b0}}, data_i} << (off_i * 8);
+    wide_s = {{AxiDataBytes{1'b0}}, strb_i} << off_i;
+    data_o       = wide_d[AxiDataWidth-1:0]        | spill_data_i;
+    strb_o       = wide_s[AxiDataBytes-1:0] | spill_strb_i;
+    spill_data_o = wide_d[2*AxiDataWidth-1:AxiDataWidth];
+    spill_strb_o = wide_s[2*AxiDataBytes-1:AxiDataBytes];
   end
-
 endmodule
