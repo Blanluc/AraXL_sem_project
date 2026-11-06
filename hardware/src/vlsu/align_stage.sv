@@ -524,13 +524,12 @@ always_comb begin
     // SEM PROJ
     automatic logic is_vse = (cluster_metadata_i.op == VSE);
     automatic int unsigned off_new  = axi_req_i.aw.addr % AxiDataBytes;
-    automatic int unsigned nbytes   = cluster_metadata_i.vl << vew;   // total bytes (assumes vl is the instruction total)
+    automatic int unsigned nbytes   = cluster_metadata_i.vl << vew;   // total bytes
     automatic int unsigned lastb    = ((nbytes - 1) % AxiDataBytes) + 1;
     automatic logic first_aw        = (wr_vl_q == '0);
     automatic vlen_cluster_t wr_vl_sum = wr_vl_q + vlen_request;
     automatic logic is_last_aw = (wr_vl_sum >= cluster_metadata_i.vl) || (cluster_metadata_i.op inside {VSXE, VSSE});
-    $display("%0t AW off=%0d nbytes=%0d lastb=%0d vl=%0d vew=%0d vlen_req=%0d wr_vl_q=%0d wr_vl_d=%0d",
-         $time, off_new, nbytes, lastb, cluster_metadata_i.vl, vew, vlen_request, wr_vl_q, wr_vl_d);
+    
 
     off_inst_d   = first_aw ? off_new : off_inst_q;
     flush_inst_d = first_aw ? (is_vse && off_new != 0 && (off_new + lastb > AxiDataBytes)) : flush_inst_q;
@@ -559,6 +558,12 @@ always_comb begin
     //   wr_vl_d = 0;
     //   b_pnt_d = (b_pnt_q == NumTrackers-1) ? 0 : b_pnt_q + 1;
     // end
+    `ifndef TARGET_SYNTHESIS
+    $display("%0t [AW] op=%s addr=%h len=%0d(beats=%0d) off_new=%0d first_aw=%0b | vl=%0d vew=%0d nbytes=%0d lastb=%0d | vlen_req=%0d wr_vl_sum=%0d last_aw=%0b | off_inst=%0d flush=%0b | wr_pnt=%0d wr_cnt=%0d",
+            $time, cluster_metadata_i.op.name(), axi_req_i.aw.addr, axi_req_i.aw.len, axi_req_i.aw.len + 1,
+            off_new, first_aw, cluster_metadata_i.vl, vew, nbytes, lastb,
+            vlen_request, wr_vl_sum, is_last_aw, off_inst_d, flush_inst_d, wr_pnt_q, wr_cnt_q);
+    `endif
   end
 
   ///////////////////////
@@ -627,6 +632,13 @@ always_comb begin
         default: axi_req_o.w.strb = '0;
       endcase
     end
+    `ifndef TARGET_SYNTHESIS
+    $display("%0t [W ] beat=%0d/%0d commit_pnt=%0d off=%0d flush=%0b last_aw=%0b | in.strb=%h in.last=%0b | out.last=%0b",
+            $time, wr_commit_len_q, wr_track_q[wr_commit_pnt_q].len,
+            wr_commit_pnt_q, wr_track_q[wr_commit_pnt_q].off,
+            wr_track_q[wr_commit_pnt_q].flush, wr_track_q[wr_commit_pnt_q].last_aw,
+            axi_req_i.w.strb, axi_req_i.w.last, axi_req_o.w.last);
+    `endif
   end
 
   // SEM PROJ
@@ -640,6 +652,12 @@ always_comb begin
       wr_commit_pnt_d = (wr_commit_pnt_q == NumTrackers-1) ? 0 : wr_commit_pnt_q + 1;
       wr_cnt_d        = wr_cnt_d - 1;
     end
+    `ifndef TARGET_SYNTHESIS
+    if (axi_resp_i.w_ready)
+      $display("%0t [FL] flush beat sent commit_pnt=%0d len=%0d strb=%h data=%h",
+              $time, wr_commit_pnt_q, wr_track_q[wr_commit_pnt_q].len,
+              axi_req_o.w.strb, axi_req_o.w.data);
+    `endif
   end
 
   // Ignore all b responses except last one
@@ -647,12 +665,19 @@ always_comb begin
   axi_resp_o.b       = '0;
 
   if (axi_resp_i.b_valid && axi_req_o.b_ready) begin
+    
     b_track_d[b_commit_pnt_q].count -= 1;
     if (b_track_q[b_commit_pnt_q].count==1) begin
       b_commit_pnt_d     = (b_commit_pnt_q == NumTrackers-1) ? 0 : b_commit_pnt_q + 1;
       axi_resp_o.b_valid = 1'b1;
       axi_resp_o.b       = axi_resp_i.b;
     end
+
+    `ifndef TARGET_SYNTHESIS
+    $display("%0t [B ] b_commit_pnt=%0d count=%0d -> %s", $time, b_commit_pnt_q,
+            b_track_q[b_commit_pnt_q].count,
+            (b_track_q[b_commit_pnt_q].count == 1) ? "forward to cluster" : "swallowed");
+    `endif
   end
 end
 
@@ -682,19 +707,19 @@ assert property (@(posedge clk_i) disable iff (~rst_ni)
 `ifndef VERILATOR
 `ifndef TARGET_SYNTHESIS
 
-// 1) Never accept a W beat beyond the AW's promise
+// Never accept a W beat beyond the AW's promise
 assert property (@(posedge clk_i) disable iff (~rst_ni)
   (axi_req_i.w_valid && axi_resp_o.w_ready) |-> (wr_commit_len_q <= wr_track_q[wr_commit_pnt_q].len))
   else $error("W beat count exceeds AW len+1");
 
-// 2) A W beat marked last must be the (len+1)-th beat
+// A W beat marked last must be the (len+1)-th beat
 assert property (@(posedge clk_i) disable iff (~rst_ni)
   (axi_req_o.w_valid && axi_resp_i.w_ready && axi_req_o.w.last)
     |-> (wr_commit_len_q == wr_track_q[wr_commit_pnt_q].len))
   else $error("w.last on beat %0d but AW promised %0d beats",
               wr_commit_len_q + 1, wr_track_q[wr_commit_pnt_q].len + 1);
 
-// 3) Starvation: an AW is outstanding but no W beat has arrived for N cycles
+// Starvation: an AW is outstanding but no W beat has arrived for N cycles
 localparam int unsigned WStallLimit = 200;
 int unsigned w_idle_cnt;
 always_ff @(posedge clk_i or negedge rst_ni) begin
