@@ -15,10 +15,7 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     // External support for vfrec7, vfrsqrt7
     parameter fpext_support_e        FPExtSupport = FPExtSupportEnable,
     // Support for fixed-point data types
-    parameter fixpt_support_e        FixPtSupport = FixedPointEnable,
-    // Detect misaligned stores
-    parameter int  unsigned AxiDataWidth = 0,
-    localparam int           unsigned AxiDataBytes        = AxiDataWidth/8
+    parameter fixpt_support_e        FixPtSupport = FixedPointEnable
   ) (
     // Clock and reset
     input  logic                                 clk_i,
@@ -48,7 +45,6 @@ module ara_dispatcher import ara_pkg::*; import rvv_pkg::*; #(
     input  logic                                 store_complete_i,
     input  logic                                 rs_load_complete_i,
     input  logic                                 rs_store_complete_i,
-    input  logic                                 misaligned_store_complete_i,
     input  logic                                 store_pending_i
   );
 
@@ -133,8 +129,7 @@ endfunction
   //  Backend interface  //
   /////////////////////////
 
-  ara_req_t ara_req_d, ara_req_q; // SEM PROJ
-  ara_req_t ara_req_prev_st_d, ara_req_prev_st_q; // SEM PROJ
+  ara_req_t ara_req_d;
   logic     ara_req_valid_d;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -156,9 +151,6 @@ endfunction
   // SEM PROJ :
   logic reshuffle_pending_d, reshuffle_pending_q;
   logic reshuffle_complete_d, reshuffle_complete_q;
-  logic is_store_misaligned;
-  logic misaligned_store_issued_d, misaligned_store_issued_q;
-  vlen_t store_offset;
 
   // The backend can either be in normal operation, waiting for Ara to be idle before issuing new
   // operations, or injecting a reshuffling uop.
@@ -170,9 +162,7 @@ endfunction
     RESHUFFLE_ST,
     RESHUFFLE_LD,
     RESHUFFLE_WAIT,
-    SLDU_SEQUENCER,
-    MISALIGNED_ST,
-    MISALIGNED_ST_WAIT
+    SLDU_SEQUENCER
   } state_e;
   state_e state_d, state_q;
 
@@ -213,9 +203,6 @@ endfunction
       reshuffle_pending_q <= '0;
       reshuffle_complete_q <= '0;
       reshuffle_ld_issued_q <= '0;
-      ara_req_q <= '0;
-      misaligned_store_issued_q <= '0;
-
     end else begin
       state_q             <= state_d;
       eew_q               <= eew_d;
@@ -232,9 +219,6 @@ endfunction
       reshuffle_pending_q <= reshuffle_pending_d;
       reshuffle_complete_q <= reshuffle_complete_d;
       reshuffle_ld_issued_q <= reshuffle_ld_issued_d;
-      ara_req_q <= ara_req_d;
-      misaligned_store_issued_q <= misaligned_store_issued_d;
-      ara_req_prev_st_q <= ara_req_prev_st_d;
     end
   end
 
@@ -302,7 +286,6 @@ endfunction
   // SEM PROJ
   vlen_t  vl_temp;
   logic from_ld;
-  logic is_store_too_long;
 
   always_comb begin: p_decoder
     // Default values
@@ -316,14 +299,10 @@ endfunction
     lmul_vs2     = vtype_q.vlmul;
     lmul_vs1     = vtype_q.vlmul;
 
-    store_offset = acc_req_i.rs1%(AxiDataBytes);
-
     // SEM PROJ
     reshuffle_pending_d =reshuffle_pending_q;
     reshuffle_complete_d = reshuffle_complete_q;
     reshuffle_ld_issued_d = reshuffle_ld_issued_q;
-    misaligned_store_issued_d = misaligned_store_issued_q;
-    ara_req_prev_st_d = ara_req_prev_st_q;
 
     reshuffle_req_d  = reshuffle_req_q;
     eew_old_buffer_d = eew_old_buffer_q;
@@ -394,64 +373,6 @@ endfunction
       // Is Ara idle?
       WAIT_IDLE: begin
         if (ara_idle_i) state_d = NORMAL_OPERATION;
-      end
-
-      MISALIGNED_ST: begin
-        //automatic rvv_instruction_t insn = rvv_instruction_t'(acc_req_i.insn.instr);
-        ara_req_d = ara_req_prev_st_q;
-
-        is_store_misaligned =1;
-
-        //rs_lmul_cnt_d       = rs_lmul_cnt_q;
-        //rs_lmul_cnt_limit_d = rs_lmul_cnt_limit_q;
-
-        // The instruction is a store
-        is_vstore            = 1'b1;
-        //from_ld              = 0;
-        //ignore_zero_vl_check = 1'b1;
-
-        // Wait before acknowledging this instruction
-        acc_resp_o.req_ready  = 1'b0;
-        acc_resp_o.resp_valid = 1'b0;
-
-        // These generate a request to Ara's backend
-        ara_req_d.vs1          = 5'h02;
-        // ara_req_d.use_vs1      = 1'b1;
-        // ara_req_d.eew_vs1      = eew_old_buffer_q;
-        // ara_req_d.is_reshuffle = 1'b1;
-        // ara_req_d.vm           = 1;
-        // ara_req_d.scalar_op    = 64'h8FFF_0000;
-        ara_req_valid_d        = 1'b1;
-        // ara_req_d.vtype.vsew   = eew_old_buffer_q;
-        // ara_req_d.op           = VSE;
-        // ara_req_d.vl           = VLENB >> ara_req_d.vtype.vsew;
-        // ara_req_d.vl_cluster   = ara_req_d.vl << num_clusters_i;
-        // ara_req_d.use_eew1     = 1'b0;
-        // ara_req_d.scale_vl     = 1'b1;
-        //ara_req_d.is_misaligned_store = 1'b1;
-
-        // reshuffle_pending_d    = 1;
-
-        // if (ara_resp_valid_i) begin //&& ~(eew_new_buffer_d == eew_old_buffer_d)) begin
-        //   state_d = RESHUFFLE_WAIT;
-        //   ara_req_valid_d  = 1'b0;
-        // end
-
-        // If LMUL>1, skip reshuffle for vectors that don't need it
-        if (ara_resp_valid_i)begin
-          ara_req_valid_d   = 1'b0;
-          state_d = MISALIGNED_ST_WAIT;
-        end
-
-
-      end
-
-      MISALIGNED_ST_WAIT: begin
-
-        if (store_complete_q ) begin
-          state_d =NORMAL_OPERATION;
-        end
-
       end
 
       ///////////////////////
@@ -652,8 +573,7 @@ endfunction
     if (state_d == NORMAL_OPERATION && state_q != RESHUFFLE_LD && state_q != RESHUFFLE_ST && state_q != RESHUFFLE_WAIT) begin
 
       ara_req_d.is_reshuffle = 1'b0;
-      ara_req_d.store_offset = '0;
-      
+
       if (acc_req_i.req_valid && ara_req_ready_i && acc_req_i.resp_ready) begin
         // Decoding
         is_decoding = 1'b1;
@@ -2993,8 +2913,6 @@ endfunction
           // The current vector length refers to the target EEW!
           // Vector stores never re-shuffle the source register!
 
-          // SEM PROJECT : DETECT MISALIGN
-
           riscv::OpcodeStoreFp: begin
             // Instruction is of one of the RVV types
             automatic rvv_instruction_t insn = rvv_instruction_t'(acc_req_i.insn.instr);
@@ -3016,9 +2934,8 @@ endfunction
             ara_req_d.use_vs1   = 1'b1;
             ara_req_d.eew_vs1   = eew_q[insn.vmem_type.rd]; // This is the vs1 EEW
             ara_req_d.vm        = insn.vmem_type.vm;
-            ara_req_d.scalar_op = acc_req_i.rs1; // SEM PROJ : ADDRESS
+            ara_req_d.scalar_op = acc_req_i.rs1;
             ara_req_valid_d     = 1'b1;
-
 
             // Decode the element width
             // Indexed memory operations follow a different rule
@@ -3063,7 +2980,7 @@ endfunction
               end
             endcase
 
-            // Decode the addressing modeara_req_d
+            // Decode the addressing mode
             unique case (insn.vmem_type.mop)
               2'b00: begin
                 ara_req_d.op = VSE;
@@ -3185,47 +3102,6 @@ endfunction
               ara_req_valid_d  = 1'b1;
             end
 
-            // Handle Misaligned Stores
-            // if (store_offset != 0 && ara_req_d.op == VSE) begin
-            //   automatic int unsigned extra       = store_offset >> ara_req_d.vtype.vsew;
-            //   automatic int unsigned vlmax_st    = (VLENB >> ara_req_d.vtype.vsew) << num_clusters_i;  // EMUL = 1, all clusters
-
-            //   // Account for cluster in transaction size
-            //   // The two next lines trigger the 'error' in the align stage
-            //   ara_req_d.vl_cluster = ara_req_d.vl_cluster + (store_offset >> ara_req_d.vtype.vsew);
-            //   ara_req_d.vl         = compute_cluster_vl(ara_req_d.vl_cluster, 1'b0, cluster_id_i, NrLanes, NrLanes << num_clusters_i);
-            //   ara_req_d.scalar_op = acc_req_i.rs1 - store_offset;
-
-            //   ara_req_d.store_offset = store_offset;
-
-            //   // Todo : If new vector too long, inject second store
-
-            //   // not sure
-            //   unique case (ara_req_d.emul)
-            //     LMUL_2:   vlmax_st <<= 1;
-            //     LMUL_4:   vlmax_st <<= 2;
-            //     LMUL_8:   vlmax_st <<= 3;
-            //     LMUL_1_2: vlmax_st >>= 1;
-            //     LMUL_1_4: vlmax_st >>= 2;
-            //     LMUL_1_8: vlmax_st >>= 3;
-            //     default:;
-            //   endcase
-
-            //   is_store_too_long = (ara_req_d.vl_cluster + extra) > vlmax_st;
-
-            //   if (ara_req_d.op == VSE && !misaligned_store_issued_q && is_store_too_long) begin
-            //     misaligned_store_issued_d =1;
-            //     acc_resp_o.req_ready  = 1'b0;
-            //     acc_resp_o.resp_valid = 1'b0;
-            //     ara_req_valid_d  = 1'b0;
-            //     if (~store_pending_i) begin
-            //       state_d = MISALIGNED_ST;
-            //     end
-            //   end
-              
-
-            // end
-
             // Wait until the back-end answers to acknowledge those instructions
             if (ara_resp_valid_i) begin
               acc_resp_o.req_ready  = 1'b1;
@@ -3236,11 +3112,6 @@ endfunction
               if (ara_resp_i.error)
                 vstart_d = ara_resp_i.error_vl;
             end
-
-            if (ara_req_d.op == VSE ) begin
-              ara_req_prev_st_d = ara_req_d;
-            end
-
           end
 
           ////////////////////////////
@@ -3482,15 +3353,6 @@ endfunction
       end
 
       //if (cluster_id_i != 1) begin
-      // if (ara_req_d.op == VSE && !misaligned_store_issued_q) begin
-      //   misaligned_store_issued_d =1;
-      //   acc_resp_o.req_ready  = 1'b0;
-      //   acc_resp_o.resp_valid = 1'b0;
-      //   ara_req_valid_d  = 1'b0;
-      //   if (~store_pending_i) begin
-      //     state_d = MISALIGNED_ST;
-      //   end
-      // end
 
       // Reshuffle if at least one of the three registers needs a reshuffle
       if (|reshuffle_req_d && !reshuffle_pending_q) begin

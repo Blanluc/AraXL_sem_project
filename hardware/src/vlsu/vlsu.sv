@@ -43,7 +43,6 @@ module vlsu import ara_pkg::*; import rvv_pkg::*; #(
     output logic                    store_complete_o,
     output logic                    rs_load_complete_o,
     output logic                    rs_store_complete_o,
-    output logic                    misaligned_store_complete_o,
     output logic                    store_pending_o,
     // Interface with the sequencer
     input  pe_req_t                 pe_req_i,
@@ -244,7 +243,6 @@ module vlsu import ara_pkg::*; import rvv_pkg::*; #(
     .store_pending_o        (store_pending_o            ),
     .store_complete_o       (store_complete_o           ),
     .rs_store_complete_o       (rs_store_complete_o           ),
-    .misaligned_store_complete_o       (misaligned_store_complete_o           ),
     // Interface with the main sequencer
     .pe_req_i               (pe_req_i                   ),
     .pe_req_valid_i         (pe_req_valid_i             ),

@@ -371,12 +371,9 @@ typedef struct packed {
   int len;
   ara_op_e op;
   axi_addr_t addr;
-
-  // SEM PROJ
   logic [$clog2(AxiDataBytes)-1:0] off;
   logic last_aw;
   logic flush;
-
 } wr_req_track_t;
 
 // SEM PROJ
@@ -518,6 +515,18 @@ end
 logic is_store_misaligned;
 logic [AxiDataBytes:0] misaligned_store_mask;
 axi_addr_t store_aligned_addr;
+logic flush_only_head, flush_now;
+
+// Special case :
+// If the flush causes a 4kb page crossing, the flush beat
+// will not be preceded by any other beat
+// we must look at the tracker instead
+assign flush_only_head = !wr_tracker_empty &&
+                         wr_track_q[wr_commit_pnt_q].flush &&
+                         wr_track_q[wr_commit_pnt_q].last_aw &&
+                         (wr_track_q[wr_commit_pnt_q].len == 0);
+
+assign flush_now = flush_active_q || flush_only_head;
 
 // MISALIGNED STORES
 // 1) DETECT MISALIGNED ADDR
@@ -561,27 +570,27 @@ always_comb begin
   if (cluster_metadata_i.op inside {VSXE, VSSE})
     axi_req_o.aw.addr = axi_req_i.aw.addr & ~axi_addr_t'(AxiDataBytes-1);
 
+  // AW is accepted
   if (axi_req_i.aw_valid && axi_resp_o.aw_ready) begin
-    automatic vew_e     vew          = cluster_metadata_i.vew;
     automatic int       burst        = axi_req_i.aw.len + 1;
-    automatic int       axi_bytes    = AxiDataBytes;
-    automatic vlen_cluster_t vlen_request = ((burst << $clog2(AxiDataBytes)) - (axi_req_i.aw.addr[$clog2(AxiDataBytes)-1:0])) >> vew;
-    //automatic vlen_cluster_t vlen_request = ((burst << $clog2(AxiDataBytes)) - (store_aligned_addr[$clog2(AxiDataBytes)-1:0])) >> vew;
+    automatic vlen_cluster_t vlen_request = ((burst << $clog2(AxiDataBytes)) - (axi_req_i.aw.addr[$clog2(AxiDataBytes)-1:0])) >> cluster_metadata_i.vew;
     // SEM PROJ
     automatic logic is_vse = (cluster_metadata_i.op == VSE);
     automatic int unsigned off_new  = axi_req_i.aw.addr % AxiDataBytes;
-    automatic int unsigned nbytes   = cluster_metadata_i.vl << vew;   // total bytes
-    automatic int unsigned lastb    = ((nbytes - 1) % AxiDataBytes) + 1;
+    automatic int unsigned nbytes   = cluster_metadata_i.vl << cluster_metadata_i.vew;   // total bytes
+    automatic int unsigned lastb    = ((nbytes - 1) % AxiDataBytes) + 1; // number of valid bytes in the last beat
     automatic logic first_aw        = (wr_vl_q == '0);
     automatic vlen_cluster_t wr_vl_sum = wr_vl_q + vlen_request;
     automatic logic is_last_aw = (wr_vl_sum >= cluster_metadata_i.vl) || (cluster_metadata_i.op inside {VSXE, VSSE});
     
+    // Since offset and flush are only visible for the first AW,
+    // we need to store them and pass them to the next AWs
 
     off_inst_d   = first_aw ? off_new : off_inst_q;
+    // A flush is injected if the number of valid bytes in the last beat + the offset exceeds the size of a beat
     flush_inst_d = first_aw ? (is_vse && off_new != 0 && (off_new + lastb > AxiDataBytes)) : flush_inst_q;
     wr_track_d[wr_pnt_q].off     = is_vse ? off_inst_d : '0;
     wr_track_d[wr_pnt_q].flush   = is_vse ? flush_inst_d : 1'b0;
-    //wr_track_d[wr_pnt_q].last_aw = (wr_vl_d >= cluster_metadata_i.vl) || (cluster_metadata_i.op inside {VSXE, VSSE});
     wr_track_d[wr_pnt_q].last_aw = is_last_aw;
     
     //wr_vl_d = wr_vl_q + vlen_request;
@@ -607,7 +616,7 @@ always_comb begin
     `ifndef TARGET_SYNTHESIS
     $display("%0t [AW] op=%s addr=%h len=%0d(beats=%0d) off_new=%0d first_aw=%0b | vl=%0d vew=%0d nbytes=%0d lastb=%0d | vlen_req=%0d wr_vl_sum=%0d last_aw=%0b | off_inst=%0d flush=%0b | wr_pnt=%0d wr_cnt=%0d",
             $time, cluster_metadata_i.op.name(), axi_req_i.aw.addr, axi_req_i.aw.len, axi_req_i.aw.len + 1,
-            off_new, first_aw, cluster_metadata_i.vl, vew, nbytes, lastb,
+            off_new, first_aw, cluster_metadata_i.vl, cluster_metadata_i.vew, nbytes, lastb,
             vlen_request, wr_vl_sum, is_last_aw, off_inst_d, flush_inst_d, wr_pnt_q, wr_cnt_q);
     `endif
   end
@@ -636,27 +645,38 @@ always_comb begin
 
   axi_req_o.w.last = 1'b0;
 
-  //if (axi_req_i.w_valid && axi_resp_o.w_ready) begin
-  if (axi_req_i.w_valid && axi_resp_o.w_ready && !flush_active_q) begin
+  // W is accepted when there are no flush beats being sent
+  if (axi_req_i.w_valid && axi_resp_o.w_ready && !flush_now) begin
+  // only load the spill if bytes really overflow this instruction
     if (wr_track_q[wr_commit_pnt_q].op == VSE && wr_track_q[wr_commit_pnt_q].off != 0) begin
-      spill_data_d = spill_data_temp;
-      spill_strb_d = spill_strb_temp;
+      // It is possible to have last_aw but not wr_commit_len_q == wr_track_q[wr_commit_pnt_q].len (Split requests!)
+      // Set spill register data depending on wether flush is needed or not
+      if (wr_track_q[wr_commit_pnt_q].last_aw &&
+          (wr_commit_len_q == wr_track_q[wr_commit_pnt_q].len) &&
+          !wr_track_q[wr_commit_pnt_q].flush) begin
+        spill_data_d = '0;
+        spill_strb_d = '0;
+      end else begin
+        spill_data_d = spill_data_temp;
+        spill_strb_d = spill_strb_temp;
+      end
     end
+
     wr_commit_len_d += 1;
     // If received all write packets for the request
-    //if (wr_commit_len_q == wr_track_d[wr_commit_pnt_q].len) begin
     if (wr_commit_len_q == wr_track_q[wr_commit_pnt_q].len - ((wr_track_q[wr_commit_pnt_q].flush && wr_track_q[wr_commit_pnt_q].last_aw) ? 1 : 0)) begin
+      // Extra flush beat is requested when the last real beat of the last AW is accepted, and a flush was predicted for that store
+      // if we request flush, don't set last and dont update tracker
       if (wr_track_q[wr_commit_pnt_q].flush && wr_track_q[wr_commit_pnt_q].last_aw) begin
-        flush_active_d = 1'b1;          // one more output beat owed, len counts it
-        // do NOT advance commit pointer, do NOT set last, do NOT decrement wr_cnt
+        flush_active_d = 1'b1;
       end else begin
-        // Update commit pnt & len
         wr_commit_len_d = '0;
         wr_commit_pnt_d = (wr_commit_pnt_q == NumTrackers-1) ? 0 : wr_commit_pnt_q + 1;
         wr_cnt_d -= 1;
         axi_req_o.w.last = 1'b1;
       end
     end
+
     
     // Set the strobe and data according to the address
     if (wr_track_q[wr_commit_pnt_q].op inside {VSXE, VSSE}) begin
@@ -685,13 +705,13 @@ always_comb begin
         default: axi_req_o.w.strb = '0;
       endcase
     end
-    `ifndef TARGET_SYNTHESIS
-    $display("%0t [W ] beat=%0d/%0d commit_pnt=%0d off=%0d flush=%0b last_aw=%0b | in.strb=%h in.last=%0b | out.last=%0b",
-            $time, wr_commit_len_q, wr_track_q[wr_commit_pnt_q].len,
-            wr_commit_pnt_q, wr_track_q[wr_commit_pnt_q].off,
-            wr_track_q[wr_commit_pnt_q].flush, wr_track_q[wr_commit_pnt_q].last_aw,
-            axi_req_i.w.strb, axi_req_i.w.last, axi_req_o.w.last);
-    `endif
+    // `ifndef TARGET_SYNTHESIS
+    // $display("%0t [W ] beat=%0d/%0d commit_pnt=%0d off=%0d flush=%0b last_aw=%0b | in.strb=%h in.last=%0b | out.last=%0b",
+    //         $time, wr_commit_len_q, wr_track_q[wr_commit_pnt_q].len,
+    //         wr_commit_pnt_q, wr_track_q[wr_commit_pnt_q].off,
+    //         wr_track_q[wr_commit_pnt_q].flush, wr_track_q[wr_commit_pnt_q].last_aw,
+    //         axi_req_i.w.strb, axi_req_i.w.last, axi_req_o.w.last);
+    // `endif
   end
 
   if (wr_track_q[wr_commit_pnt_q].op == VSE && off != 0) begin
@@ -699,27 +719,37 @@ always_comb begin
     axi_req_o.w.strb = shifted_strb;
   end
 
-  // SEM PROJ
-  if (flush_active_q) begin
-    // axi_req_o.w.data = '0;
-    // axi_req_o.w.strb = '0;
+  `ifndef TARGET_SYNTHESIS
+  if (axi_req_i.w_valid) begin
+    $display("%0t [WD] acc=%0b dn_rdy=%0b len=%0d/%0d off=%0d fl_act=%0b | in.strb=%h in.d=%h | spill.strb=%h spill.d=%h | out.strb=%h out.d=%h",
+             $time, axi_resp_o.w_ready, axi_resp_i.w_ready,
+             wr_commit_len_q, wr_track_q[wr_commit_pnt_q].len, off, flush_active_q,
+             axi_req_i.w.strb, axi_req_i.w.data,
+             spill_strb_q, spill_data_q,
+             axi_req_o.w.strb, axi_req_o.w.data);
+  end
+  `endif
+
+  // Inject flush beat
+  if (flush_now) begin
+    // Instead of forwarding data from clusters, forward data from spill regs
     axi_req_o.w.data = spill_data_q;
     axi_req_o.w.strb = spill_strb_q;
+    // reset spill regs
     spill_data_d = '0;
     spill_strb_d = '0;
     axi_req_o.w.last = 1'b1;
+    // Update tracker
     if (axi_resp_i.w_ready) begin
       flush_active_d  = 1'b0;
       wr_commit_len_d = '0;
       wr_commit_pnt_d = (wr_commit_pnt_q == NumTrackers-1) ? 0 : wr_commit_pnt_q + 1;
       wr_cnt_d        = wr_cnt_d - 1;
     end
-    `ifndef TARGET_SYNTHESIS
-    if (axi_resp_i.w_ready)
-      $display("%0t [FL] flush beat sent commit_pnt=%0d len=%0d strb=%h data=%h",
-              $time, wr_commit_pnt_q, wr_track_q[wr_commit_pnt_q].len,
-              axi_req_o.w.strb, axi_req_o.w.data);
-    `endif
+
+      `ifndef TARGET_SYNTHESIS
+  $display("%0t [FL] dn_rdy=%0b out.strb=%h out.d=%h", $time, axi_resp_i.w_ready, axi_req_o.w.strb, axi_req_o.w.data);
+  `endif
   end
 
   
@@ -737,11 +767,6 @@ always_comb begin
       axi_resp_o.b       = axi_resp_i.b;
     end
 
-    `ifndef TARGET_SYNTHESIS
-    $display("%0t [B ] b_commit_pnt=%0d count=%0d -> %s", $time, b_commit_pnt_q,
-            b_track_q[b_commit_pnt_q].count,
-            (b_track_q[b_commit_pnt_q].count == 1) ? "forward to cluster" : "swallowed");
-    `endif
   end
 end
 
@@ -750,8 +775,10 @@ end
 // assign axi_resp_o.w_ready = axi_resp_i.w_ready && !wr_tracker_empty;
 // assign axi_req_o.w_valid = axi_req_i.w_valid && !wr_tracker_empty;
 
-assign axi_resp_o.w_ready = axi_resp_i.w_ready && !wr_tracker_empty && !flush_active_q;
-assign axi_req_o.w_valid  = flush_active_q || (axi_req_i.w_valid && !wr_tracker_empty);
+// Write response not ready if flush is being sent
+assign axi_resp_o.w_ready = axi_resp_i.w_ready && !wr_tracker_empty && !flush_now;
+// Write valis must also be set for flush beats
+assign axi_req_o.w_valid  = flush_now || (axi_req_i.w_valid && !wr_tracker_empty);
 
 // Assertion: Verify AXI response data does not change when there is no valid handshake
 `ifndef VERILATOR
@@ -873,9 +900,9 @@ module shift_w_beat #(
   logic [2*AxiDataBytes-1:0] wide_s;
 
   always_comb begin
-    wide_d = {{AxiDataWidth{1'b0}}, data_i} << (off_i * 8);
-    wide_s = {{AxiDataBytes{1'b0}}, strb_i} << off_i;
-    data_o       = wide_d[AxiDataWidth-1:0]        | spill_data_i;
+    wide_d       = {{AxiDataWidth{1'b0}}, data_i} << (off_i * 8);
+    wide_s       = {{AxiDataBytes{1'b0}}, strb_i} << off_i;
+    data_o       = wide_d[AxiDataWidth-1:0] | spill_data_i;
     strb_o       = wide_s[AxiDataBytes-1:0] | spill_strb_i;
     spill_data_o = wide_d[2*AxiDataWidth-1:AxiDataWidth];
     spill_strb_o = wide_s[2*AxiDataBytes-1:AxiDataBytes];
