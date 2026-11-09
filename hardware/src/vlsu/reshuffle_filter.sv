@@ -1,4 +1,4 @@
-// Copyright 2024-2025 ETH Zurich and University of Bologna.
+// Copyright 2026 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 //
@@ -31,17 +31,13 @@ module reshuffle_filter import ara_pkg::*; import rvv_pkg::*;  #(
   
   // To GLSU
   input  cluster_axi_resp_t [NrClusters-1:0] axi_resp_i,
-  output cluster_axi_req_t  [NrClusters-1:0] axi_req_o,
-
-  output logic rs_finish
+  output cluster_axi_req_t  [NrClusters-1:0] axi_req_o
 );
 
 // Reshuffle buffer
 logic[ClusterAxiDataWidth-1:0] rs_buffer [DEPTH] [NrClusters-1:0];
 
 logic [NrClusters-1:0] rs_w_clusters_valid;
-
-logic [NrClusters-1:0] rs_finish_q, rs_finish_d;
 
 // Transaction counters
 logic [$clog2(DEPTH):0] rs_w_count_q, rs_w_count_d;
@@ -62,16 +58,11 @@ logic [$bits(axi_req_i[0].ar.id)-1:0] ar_id_q [NrClusters], ar_id_d [NrClusters]
 
 logic rs_store_en;
 
-// assign axi_resp_o = axi_resp_i;
-// assign axi_req_o = axi_req_i;
-// assign cluster_metadata_o = cluster_metadata_i;
-
 assign axi_resp_o = axi_resp_d;
 assign axi_req_o = axi_req_d;
 assign cluster_metadata_o = cluster_metadata_d;
 assign rs_store_en = cluster_metadata_i.is_reshuffle && (cluster_metadata_i.op == VSE) && (&rs_w_clusters_valid);
-// ADDED
-assign rs_finish = &rs_finish_q;
+
 
 always_ff @(posedge clk_i or negedge rst_ni) begin
   if(~rst_ni) begin
@@ -83,8 +74,6 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     for (int j = 0; j < NrClusters; j++) begin
       ar_id_q[j]         <= '0;
     end
-    // ADDED
-    rs_finish_q          <= '0;
   end else begin
     rs_w_count_q         <= rs_w_count_d;
     rs_r_count_q         <= rs_r_count_d;
@@ -92,8 +81,6 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     b_pending_q          <= b_pending_d;
     aw_id_q              <= aw_id_d;
     ar_id_q              <= ar_id_d;
-    // ADDED
-    rs_finish_q          <= rs_finish_d;
   end
 end
 
@@ -116,8 +103,6 @@ always_comb begin
   cluster_metadata_d   = cluster_metadata_i;
   b_pending_d          = b_pending_q;
   aw_id_d              = aw_id_q;
-  // ADDED
-  rs_finish_d          = '0;
 
   for (int j=0; j < NrClusters; j++) begin
     rs_w_clusters_valid[j] = axi_req_i[j].w_valid;
@@ -232,8 +217,6 @@ always_comb begin
             axi_resp_d[j].b_valid  = 1'b0;
             axi_resp_d[j].b        = '0;
             axi_resp_d[j].r.last   = (rs_r_count_q == DEPTH-1);
-            // ADDED
-            rs_finish_d[j]         = (rs_r_count_q == DEPTH-1);
           end
 
           if (r_all_ready) begin
