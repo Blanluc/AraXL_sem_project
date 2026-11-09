@@ -165,15 +165,15 @@ void TEST_RESHUFFLE_6(void) {
 
   VSET(512, e16, m2);
   asm volatile("vadd.vv v6, v0, v2");
-  LVCMP_U16(2, v0, LONG_I16_5);
-  LVCMP_U16(2, v2, LONG_I16_6);
-  LVCMP_U16(2, v6, LONG_I16_7);
+  LVCMP_U16(31, v0, LONG_I16_5);
+  LVCMP_U16(32, v2, LONG_I16_6);
+  LVCMP_U16(33, v6, LONG_I16_7);
 
   VSET(1024, e8, m2);
   asm volatile("vadd.vv v4, v0, v2");
-  LVCMP_U8(2, v0, LONG_I8_2);
-  LVCMP_U8(2, v2, LONG_I8_3);
-  LVCMP_U8(2, v4, LONG_I8_4);
+  LVCMP_U8(34, v0, LONG_I8_2);
+  LVCMP_U8(35, v2, LONG_I8_3);
+  LVCMP_U8(36, v4, LONG_I8_4);
 
 }
 
@@ -223,15 +223,15 @@ void TEST_RESHUFFLE_7(void) {
 
   VSET(1024, e8, m2);
   asm volatile("vadd.vv v2, v0, v4");
-  LVCMP_U8(4, v0, IDX_A8);
-  LVCMP_U8(5, v4, IDX_SUM8);
-  LVCMP_U8(6, v2, IDX_SUM8_2);
+  LVCMP_U8(37, v0, IDX_A8);
+  LVCMP_U8(38, v4, IDX_SUM8);
+  LVCMP_U8(39, v2, IDX_SUM8_2);
   
   VSET(512, e16, m2);
   asm volatile("vadd.vv v4, v0, v2");
-  LVCMP_U16(1, v0, IDX_A);
-  LVCMP_U16(2, v2, IDX_SUM_2);
-  LVCMP_U16(3, v4, IDX_SUM_3);
+  LVCMP_U16(40, v0, IDX_A);
+  LVCMP_U16(41, v2, IDX_SUM_2);
+  LVCMP_U16(42, v4, IDX_SUM_3);
 
 }
 
