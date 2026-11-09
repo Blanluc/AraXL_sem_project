@@ -1,216 +1,420 @@
-// Copyright 2021 ETH Zurich and University of Bologna.
-// Solderpad Hardware License, Version 0.51, see LICENSE for details.
-// SPDX-License-Identifier: SHL-0.51
-//
-// Author: Luca Caballero Cusin <lcaballero@ethz.ch>
-
 #include "../common/macros/vector/vector_macros.h"
 #include "../common/macros/vector/long_array.h"
 #include <stdio.h>
 
-static volatile uint16_t buf[256] __attribute__((aligned(32)));
-static volatile uint16_t buf2[64] __attribute__((aligned(128)));
-static volatile uint16_t buf3[256] __attribute__((aligned(32)));
+#define AXI_DWIDTH 128
 
-void TEST_MISALIGNED_STORE(void) {
-  
+#define INIT 98
 
-  // Test 1: 1-byte offset (not 2-byte aligned for e16)
+// Every buffer is pre filled with INIT, which acts as the poison value.
+// Each test stores into a misaligned address and compares the stored window plus
+// one element on each side (which must still be INIT).
+
+static volatile uint8_t B2[96]     __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 95] = INIT};
+static volatile uint8_t B3[96]     __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 95] = INIT};
+static volatile uint8_t B4[128]    __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 127] = INIT};
+static volatile uint16_t B1[48]    __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 47] = INIT};
+static volatile uint16_t B5[48]    __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 47] = INIT};
+static volatile uint16_t B6[48]    __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 47] = INIT};
+static volatile uint16_t B7[48]    __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 47] = INIT};
+static volatile uint32_t B8[48]    __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 47] = INIT};
+static volatile uint32_t B9[48]    __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 47] = INIT};
+static volatile uint64_t B10[24]   __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 23] = INIT};
+static volatile uint64_t B11[24]   __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 23] = INIT};
+static volatile uint16_t B12[96]   __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 95] = INIT};
+static volatile uint16_t B13[256]  __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 255] = INIT};
+static volatile uint16_t B14[4096] __attribute__((aligned(4096))) = {[0 ... 4095] = INIT};
+static volatile uint8_t B15[8192]  __attribute__((aligned(4096))) = {[0 ... 8191] = INIT};
+
+// ---- add near the other buffers ----
+static volatile uint8_t B23[8192]  __attribute__((aligned(4096))) = {[0 ... 8191] = INIT};
+static volatile uint8_t MASK_SRC[16] __attribute__((aligned(AXI_DWIDTH))) =
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+
+void reset_vec8(volatile uint8_t *vec, int rst_val, uint64_t len) {
+  for (uint64_t i = 0; i < len; ++i)
+    vec[i] = rst_val;
+}
+
+
+// e16, offset 0, 32 bytes
+void TEST_CASE1(void) {
   VSET(16, e16, m1);
-  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8);
-  VLOAD_16(v2, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8);
-  asm volatile("vse16.v v1, (%0)" ::"r"(&buf3[1]));
-  __asm__ volatile("fence");
-  for (int i = 0; i < 16; i++) {
-    //uint16_t got = (uint16_t)buf[1 + 2*i] | ((uint16_t)buf[2 + 2*i] << 8);
-     //if (buf[i]= (uint16_t)(i+1))
-    printf("e16+1 FAIL at %d: got %04x expected %04x\n", i, buf3[i+1], i+1);
-  }
-
-    asm volatile("vle16.v v2, (%0)" ::"r"(&buf3[1]));
-  __asm__ volatile("fence");
-  VCMP_U16(10,v2, 1, 2, 3, 4, 5, 6, 7, 8 ,1, 2, 3, 4, 5, 6, 7, 8);
-
-}
-
-void TEST_MISALIGNED_STORE_2(void) {
-  
-
-  // Test 1: 1-byte offset (not 2-byte aligned for e16)
-  VSET(17, e16, m1);
-  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1);
-  asm volatile("vse16.v v1, (%0)" ::"r"(&buf[0]));
-  __asm__ volatile("fence");
-  for (int i = 0; i < 17; i++) {
-    //uint16_t got = (uint16_t)buf[1 + 2*i] | ((uint16_t)buf[2 + 2*i] << 8);
-     //if (buf[i]= (uint16_t)(i+1))
-    printf("e16+1 FAIL at %d: got %04x expected %04x\n", i, buf[0], i+1);
-  }
-
-    asm volatile("vle16.v v2, (%0)" ::"r"(&buf[0]));
-  __asm__ volatile("fence");
-  VCMP_U16(10,v2, 1, 2, 3, 4, 5, 6, 7, 8 ,1, 2, 3, 4, 5, 6, 7, 8, 1);
-
-}
-
-void TEST_MISALIGNED_STORE_3(void) {
-  
-
-  // Test 1: 1-byte offset (not 2-byte aligned for e16)
-  VSET(32, e16, m1);
-  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8 , 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8);
-  VLOAD_16(v2, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8 ,8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8);
-  asm volatile("vse16.v v1, (%0)" ::"r"(&buf2[1]));
-  __asm__ volatile("fence");
-  // for (int i = 0; i < 8; i++) {
-  //   //uint16_t got = (uint16_t)buf[1 + 2*i] | ((uint16_t)buf[2 + 2*i] << 8);
-  //    //if (buf[i]= (uint16_t)(i+1))
-  //   printf("e16+1 FAIL at %d: got %04x expected %04x\n", i, buf_2[0], i+1);
-  // }
-
-  asm volatile("vle16.v v1, (%0)" ::"r"(&buf2[0]));
-  //__asm__ volatile("fence");
-  VCMP_U16(10,v1, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8 , 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8);
-
-}
-
-void TEST_MISALIGNED_STORE_4(void) {
-  // 16 x e16 = 32 bytes, stored at every legal 2-byte offset 0..30
-  for (int off = 0; off < 32; off += 2) {
-    // poison the buffer
-    for (int i = 0; i < 128; i++) buf[i] = 0xAAAA;
-    asm volatile("fence");
-
-    VSET(16, e16, m1);
-    VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
-    asm volatile("vse16.v v1, (%0)" ::"r"((uint8_t *)&buf[32] + off));
-    asm volatile("fence");
-
-    // check: 16 elements land at the offset, the guards before and after are untouched
-    for (int i = 0; i < 128; i++) {
-      int k = i - 32 - off / 2;                       // element index (uint16_t units)
-      uint16_t exp = (k >= 0 && k < 16) ? (uint16_t)(k + 1) : 0xAAAA;
-      if (buf[i] != exp)
-        printf("FAIL off=%d buf[%d]=%04x exp %04x\n", off, i, buf[i], exp);
-    }
-  }
-}
-
-void TEST_MISALIGNED_STORE_5(void) {
-  // e16, off=2, vl=15 (30 bytes) -> ends exactly on the beat boundary, no flush
-  for (int i = 0; i < 128; i++) buf[i] = 0xAAAA;
-  asm volatile("fence");
-
-  VSET(15, e16, m1);
   VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
-  asm volatile("vse16.v v1, (%0)" ::"r"((uint8_t *)&buf[32] + 2));
+  asm volatile("vse16.v v1, (%0)" ::"r"(&B1[16]));
   asm volatile("fence");
-
-  // expected: buf[33..47] = 1..15, everything else untouched
-  for (int i = 0; i < 128; i++) {
-    int k = i - 33;
-    uint16_t exp = (k >= 0 && k < 15) ? (uint16_t)(k + 1) : 0xAAAA;
-    if (buf[i] != exp)
-      printf("FAIL case1 buf[%d]=%04x exp %04x\n", i, buf[i], exp);
-  }
+  volatile uint16_t *r1 = &B1[15];
+  VVCMP_U16(1, r1, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
 }
 
-void TEST_VSUXEI(void) {
-  // 16 x e16 elements scattered to byte offsets idx[i] from a 32-byte-aligned base
-  uint16_t *base = &buf[32];
-
-  for (int i = 0; i < 128; i++) buf[i] = 0xAAAA;
+// e8, offset 1, 32 bytes: one full beat plus 1 spilled byte
+void TEST_CASE2(void) {
+  VSET(32, e8, m1);
+  VLOAD_8(v2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32);
+  asm volatile("vse8.v v2, (%0)" ::"r"(&B2[33]));
   asm volatile("fence");
+  volatile uint8_t *r2 = &B2[32];
+  VVCMP_U8(2, r2, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, INIT);
+}
 
+// e8, offset 31, 1 byte: last lane of the beat, no spill
+void TEST_CASE3(void) {
+  VSET(1, e8, m1);
+  VLOAD_8(v3, 7);
+  asm volatile("vse8.v v3, (%0)" ::"r"(&B3[63]));
+  asm volatile("fence");
+  volatile uint8_t *r3 = &B3[62];
+  VVCMP_U8(3, r3, INIT, 7, INIT);
+}
+
+// e8 m2, offset 17, 40 bytes: 2 beats, partial last beat, no spill
+void TEST_CASE4(void) {
+  VSET(40, e8, m2);
+  VLOAD_8(v24, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40);
+  asm volatile("vse8.v v24, (%0)" ::"r"(&B4[49]));
+  asm volatile("fence");
+  volatile uint8_t *r4 = &B4[48];
+  VVCMP_U8(4, r4, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, INIT);
+}
+
+// e16, offset 2, 32 bytes: basic spill case
+void TEST_CASE5(void) {
   VSET(16, e16, m1);
-  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);   // data
-  // byte offsets: element i goes to base + 6*i bytes (3 uint16_t slots apart)
-  VLOAD_16(v2, 0, 6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66, 72, 78, 84, 90);   // indices
-  asm volatile("vsuxei16.v v1, (%0), v2" ::"r"(base));
+  VLOAD_16(v5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  asm volatile("vse16.v v5, (%0)" ::"r"(&B5[17]));
   asm volatile("fence");
+  volatile uint16_t *r5 = &B5[16];
+  VVCMP_U16(5, r5, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
+}
 
-  // check: element k at buf[32 + 3*k], everything else untouched
+// e16, offset 30, 2 elements: only the first element fits in the beat
+void TEST_CASE6(void) {
+  VSET(2, e16, m1);
+  VLOAD_16(v6, 1, 2);
+  asm volatile("vse16.v v6, (%0)" ::"r"(&B6[31]));
+  asm volatile("fence");
+  volatile uint16_t *r6 = &B6[30];
+  VVCMP_U16(6, r6, INIT, 1, 2, INIT);
+}
+
+// e16, offset 2, 30 bytes: ends exactly on the beat boundary
+void TEST_CASE7(void) {
+  VSET(15, e16, m1);
+  VLOAD_16(v7, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  asm volatile("vse16.v v7, (%0)" ::"r"(&B7[17]));
+  asm volatile("fence");
+  volatile uint16_t *r7 = &B7[16];
+  VVCMP_U16(7, r7, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, INIT);
+}
+
+// e32, offset 4, 32 bytes
+void TEST_CASE8(void) {
+  VSET(8, e32, m1);
+  VLOAD_32(v8, 1, 2, 3, 4, 5, 6, 7, 8);
+  asm volatile("vse32.v v8, (%0)" ::"r"(&B8[9]));
+  asm volatile("fence");
+  volatile uint32_t *r8 = &B8[8];
+  VVCMP_U32(8, r8, INIT, 1, 2, 3, 4, 5, 6, 7, 8, INIT);
+}
+
+// e32, offset 28, 12 bytes: one element in the first beat, two spilled
+void TEST_CASE9(void) {
+  VSET(3, e32, m1);
+  VLOAD_32(v9, 1, 2, 3);
+  asm volatile("vse32.v v9, (%0)" ::"r"(&B9[15]));
+  asm volatile("fence");
+  volatile uint32_t *r9 = &B9[14];
+  VVCMP_U32(9, r9, INIT, 1, 2, 3, INIT);
+}
+
+// e64, offset 8, 32 bytes
+void TEST_CASE10(void) {
+  VSET(4, e64, m1);
+  VLOAD_64(v10, 1, 2, 3, 4);
+  asm volatile("vse64.v v10, (%0)" ::"r"(&B10[5]));
+  asm volatile("fence");
+  volatile uint64_t *r10 = &B10[4];
+  VVCMP_U64(10, r10, INIT, 1, 2, 3, 4, INIT);
+}
+
+// e64, offset 24, 1 element: ends exactly at the end of the beat
+void TEST_CASE11(void) {
+  VSET(1, e64, m1);
+  VLOAD_64(v11, 1);
+  asm volatile("vse64.v v11, (%0)" ::"r"(&B11[7]));
+  asm volatile("fence");
+  volatile uint64_t *r11 = &B11[6];
+  VVCMP_U64(11, r11, INIT, 1, INIT);
+}
+
+// e16 m2, offset 2, 64 bytes: multi-beat with a flush beat
+void TEST_CASE12(void) {
+  VSET(32, e16, m2);
+  VLOAD_16(v12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32);
+  asm volatile("vse16.v v12, (%0)" ::"r"(&B12[33]));
+  asm volatile("fence");
+  volatile uint16_t *r12 = &B12[32];
+  VVCMP_U16(12, r12, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, INIT);
+}
+
+// Back to back stores with flush, no flush, aligned, flush at max offset
+void TEST_CASE13(void) {
+  VSET(16, e16, m1);
+  VLOAD_16(v16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  asm volatile("vse16.v v16, (%0)" ::"r"(&B13[17]));
+  VSET(15, e16, m1);
+  VLOAD_16(v17, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  asm volatile("vse16.v v17, (%0)" ::"r"(&B13[65]));
+  VSET(16, e16, m1);
+  VLOAD_16(v18, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  asm volatile("vse16.v v18, (%0)" ::"r"(&B13[112]));
+  VSET(2, e16, m1);
+  VLOAD_16(v19, 1, 2);
+  asm volatile("vse16.v v19, (%0)" ::"r"(&B13[175]));
+  asm volatile("fence");
+  volatile uint16_t *r13a = &B13[16];
+  volatile uint16_t *r13b = &B13[64];
+  volatile uint16_t *r13c = &B13[111];
+  volatile uint16_t *r13d = &B13[174];
+  VVCMP_U16(13, r13a, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
+  VVCMP_U16(14, r13b, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, INIT);
+  VVCMP_U16(15, r13c, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
+  VVCMP_U16(16, r13d, INIT, 1, 2, INIT);
+}
+
+// Page crossing: e16 m2, starts 34 bytes before the boundary (offset 30)
+void TEST_CASE14(void) {
+  VSET(32, e16, m2);
+  VLOAD_16(v20, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32);
+  asm volatile("vse16.v v20, (%0)" ::"r"(&B14[2031]));
+  asm volatile("fence");
+  volatile uint16_t *r14 = &B14[2030];
+  VVCMP_U16(17, r14, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, INIT);
+}
+
+// Page crossing: e8 m2, starts 1 byte before the boundary (offset 31)
+void TEST_CASE15(void) {
+  VSET(40, e8, m2);
+  VLOAD_8(v22, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40);
+  asm volatile("vse8.v v22, (%0)" ::"r"(&B15[4095]));
+  asm volatile("fence");
+  volatile uint8_t *r15 = &B15[4094];
+  VVCMP_U8(18, r15, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, INIT);
+}
+
+static volatile uint8_t M17[8] __attribute__((aligned(AXI_DWIDTH))) = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
+static volatile uint8_t M19[8] __attribute__((aligned(AXI_DWIDTH))) = {0x11, 0x22, 0x33, 0x44, 0x55, 0, 0, 0};
+
+
+// whole reg store (stack save/restore case) at a misaligned address
+static volatile uint8_t B16[4096] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 4095] = INIT};
+static volatile uint8_t S16[2048] __attribute__((aligned(AXI_DWIDTH)));
+static volatile uint8_t F16 = 0;
+
+// masked store, alternate elements masked, last element masked
+static volatile uint16_t B17[48] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 47] = INIT};
+
+// vl = 0 at a misaligned address
+static volatile uint16_t B18[48] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 47] = INIT};
+
+// mask store (vsm.v) at a misaligned address
+static volatile uint8_t B19[96] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 95] = INIT};
+
+// long store spanning several AWs (three pages)
+static volatile uint8_t B20[16384] __attribute__((aligned(4096))) = {[0 ... 16383] = INIT};
+static volatile uint8_t S20[8192] __attribute__((aligned(AXI_DWIDTH)));
+static volatile uint8_t F20 = 0;
+
+// regression, indexed and strided stores
+static volatile uint16_t B21[128] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 127] = INIT};
+static volatile uint16_t B22[128] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 127] = INIT};
+static volatile uint8_t F21 = 0;
+
+// vs1r.v of a full register, offset 3 bytes. The size is read from vlenb at run time.
+void TEST_CASE16(void) {
+  uint64_t vlenb;
+  asm volatile("csrr %0, vlenb" : "=r"(vlenb));
+  for (uint64_t i = 0; i < vlenb; i++) S16[i] = (uint8_t)(i * 7 + 1);
+  asm volatile("vsetvli zero, %0, e8, m1, ta, ma" ::"r"(vlenb));
+  asm volatile("vle8.v v1, (%0)" ::"r"(&S16[0]) : "memory");
+  asm volatile("vs1r.v v1, (%0)" ::"r"(&B16[64 + 3]) : "memory");
+  asm volatile("fence");
+  F16 = 0;
+  if (B16[66] != INIT || B16[67 + vlenb] != INIT) F16 = 1;
+  for (uint64_t i = 0; i < vlenb; i++)
+    if (B16[67 + i] != S16[i]) F16 = 1;
+  volatile uint8_t *r16 = &F16;
+  VVCMP_U8(19, r16, 0);
+}
+
+// e16, offset 2, 16 elements, mask 0x55 0x55: even elements stored, odd ones untouched.
+// The last element (15) is masked, so the flush beat has zero strobes but must still be sent.
+// e16, offset 2, 16 elements, mask 0x55: even-indexed elements stored, odd ones untouched
+void TEST_CASE17(void) {
+  VSET(16, e16, m1);
+  asm volatile("vlm.v v0, (%0)" ::"r"(&M17[0]) : "memory");
+  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  asm volatile("vse16.v v1, (%0), v0.t" ::"r"(&B17[17]));
+  asm volatile("fence");
+  volatile uint16_t *r17 = &B17[16];
+  VVCMP_U16(20, r17, INIT, 1, INIT, 3, INIT, 5, INIT, 7, INIT, 9, INIT, 11, INIT,
+            13, INIT, 15, INIT, INIT);
+}
+
+// vl = 0 at a misaligned address: nothing may be written and nothing may hang
+void TEST_CASE18(void) {
+  VSET(0, e16, m1);
+  asm volatile("vse16.v v1, (%0)" ::"r"(&B18[17]));
+  asm volatile("fence");
+  volatile uint16_t *r18 = &B18[16];
+  VVCMP_U16(21, r18, INIT, INIT, INIT, INIT);
+}
+
+// vsm.v with vl = 40 (5 bytes), offset 30: the 5 bytes spill into a flush beat
+void TEST_CASE19(void) {
+  VSET(40, e8, m1);
+  asm volatile("vlm.v v1, (%0)" ::"r"(&M19[0]) : "memory");
+  asm volatile("vsm.v v1, (%0)" ::"r"(&B19[62]) : "memory");
+  asm volatile("fence");
+  volatile uint8_t *r19 = &B19[61];
+  VVCMP_U8(22, r19, INIT, 0x11, 0x22, 0x33, 0x44, 0x55, INIT);
+}
+
+// e8 m8, maximum vl (up to 8192 bytes), offset 5: three or more AWs, spill carried across all of them
+void TEST_CASE20(void) {
+  uint64_t vl;
+  asm volatile("vsetvli %0, %1, e8, m8, ta, ma" : "=r"(vl) : "r"(8192));
+  for (uint64_t i = 0; i < 8192; i++) S20[i] = (uint8_t)(i * 7 + 1);
+  asm volatile("vle8.v v8, (%0)" ::"r"(&S20[0]) : "memory");
+  asm volatile("vse8.v v8, (%0)" ::"r"(&B20[4096 + 5]) : "memory");
+  asm volatile("fence");
+  F20 = 0;
+  if (B20[4100] != INIT || B20[4101 + vl] != INIT) F20 = 1;
+  for (uint64_t i = 0; i < vl; i++)
+    if (B20[4101 + i] != S20[i]) F20 = 1;
+  volatile uint8_t *r20 = &F20;
+  VVCMP_U8(23, r20, 0);
+}
+
+// Regression: indexed (vsuxei16) and strided (vsse16) stores, element k at slot 32 + 3k
+void TEST_CASE21(void) {
+  VSET(16, e16, m1);
+  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  VLOAD_16(v2, 0, 6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66, 72, 78, 84, 90);
+  asm volatile("vsuxei16.v v1, (%0), v2" ::"r"(&B21[32]));
+  long stride = 6;
+  asm volatile("vsse16.v v1, (%0), %1" ::"r"(&B22[32]), "r"(stride));
+  asm volatile("fence");
+  F21 = 0;
   for (int i = 0; i < 128; i++) {
     int rel = i - 32;
-    uint16_t exp = 0xAAAA;
+    uint16_t exp = INIT;
     if (rel >= 0 && rel % 3 == 0 && rel / 3 < 16) exp = (uint16_t)(rel / 3 + 1);
-    if (buf[i] != exp)
-      printf("FAIL vsuxei buf[%d]=%04x exp %04x\n", i, buf[i], exp);
+    if (B21[i] != exp || B22[i] != exp) F21 = 1;
   }
+  volatile uint8_t *r21 = &F21;
+  VVCMP_U8(24, r21, 0);
 }
 
-void TEST_MISALIGNED_LMUL(void) {
-  // e16, m4: up to 4*16 = 64 elements = 128 bytes = 4 beats. Offset 2, vl = 64 -> 5 beats (flush).
-  // Then vl = 63 -> 4 beats, no flush. Then vl = 33 -> partial last beat.
-  int vls[3] = {64, 63, 33};
 
-  for (int t = 0; t < 3; t++) {
-    int vl = vls[t];
-    for (int i = 0; i < 256; i++) buf[i] = 0xAAAA;
-    asm volatile("fence");
-
-    VSET(64, e16, m4);
-    // fill v4..v7 (m4 group) with 1..64
-    for (int i = 0; i < 64; i++) buf2[i] = i + 1;       // buf2: separate uint16_t[64] source
-    asm volatile("vle16.v v4, (%0)" ::"r"(buf2));
-    asm volatile("fence");
-
-    VSET(vl, e16, m4);
-    asm volatile("vse16.v v4, (%0)" ::"r"((uint8_t *)&buf[64] + 2));
-    asm volatile("fence");
-
-    for (int i = 0; i < 256; i++) {
-      int k = i - 65;                                    // element index; buf[65] = base + 2 bytes
-      uint16_t exp = (k >= 0 && k < vl) ? (uint16_t)(k + 1) : 0xAAAA;
-      if (buf[i] != exp)
-        printf("FAIL m4 vl=%d buf[%d]=%04x exp %04x\n", vl, i, buf[i], exp);
-    }
-  }
+void TEST_CASE22(void) {
+  // e64 vl=2, starts 8 bytes before the boundary: element 0 in AW1, element 1 in the flush-only AW2
+  reset_vec8(&B23[4096 - 64], INIT, 128);
+  VSET(2, e64, m1);
+  VLOAD_64(v22, 0x0807060504030201, 0x100f0e0d0c0b0a09);
+  asm volatile("vse64.v v22, (%0)" ::"r"(&B23[4096 - 8]));
+  asm volatile("fence");
+  volatile uint8_t *r22 = &B23[4096 - 9];
+  VVCMP_U8(25, r22, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
 }
 
-static volatile uint16_t pbuf[4096] __attribute__((aligned(4096)));   // 8 KiB, page boundary at pbuf[2048]
+// Same hole with vsm.v: vl=100 mask bits -> 13 bytes, off+13>32, page crossing
+void TEST_CASE23(void) {
+  // k=1: off=31, 1 byte before the boundary, 12 after
+  reset_vec8(&B23[4096 - 64], INIT, 128);
+  VSET(100, e8, m1);
+  asm volatile("vlm.v v1, (%0)" ::"r"(&MASK_SRC[0]));
+  asm volatile("vsm.v v1, (%0)" ::"r"(&B23[4096 - 1]));
+  asm volatile("fence");
+  volatile uint8_t *r23a = &B23[4096 - 2];
+  VVCMP_U8(28, r23a, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, INIT);
 
-void TEST_MISALIGNED_PAGE_CROSS(void) {
-  // distance in bytes from the store start to the 4 KiB boundary
-  int ks[5] = {62, 34, 30, 4, 2};
+  // k=5: 5 bytes before, 8 after
+  reset_vec8(&B23[4096 - 64], INIT, 128);
+  VSET(100, e8, m1);
+  asm volatile("vlm.v v2, (%0)" ::"r"(&MASK_SRC[0]));
+  asm volatile("vsm.v v2, (%0)" ::"r"(&B23[4096 - 5]));
+  asm volatile("fence");
+  volatile uint8_t *r23b = &B23[4096 - 6];
+  VVCMP_U8(29, r23b, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, INIT);
 
-  for (int i = 0; i < 64; i++) buf2[i] = i + 1;
-
-  for (int t = 0; t < 5; t++) {
-    int k = ks[t];
-    int start = 2048 - k / 2;                      // pbuf index where the store begins
-
-    for (int i = 1900; i < 2300; i++) pbuf[i] = 0xAAAA;
-    asm volatile("fence");
-
-    VSET(64, e16, m4);
-    asm volatile("vle16.v v4, (%0)" ::"r"(buf2) : "memory");
-    asm volatile("vse16.v v4, (%0)" ::"r"((uint8_t *)&pbuf[2048] - k) : "memory");
-    asm volatile("fence");
-
-    for (int i = 1900; i < 2300; i++) {
-      int e = i - start;                            // element index
-      uint16_t exp = (e >= 0 && e < 64) ? (uint16_t)(e + 1) : 0xAAAA;
-      if (pbuf[i] != exp)
-        printf("FAIL cross k=%d pbuf[%d]=%04x exp %04x\n", k, i, pbuf[i], exp);
-    }
-  }
+  // k=12: 12 bytes before, 1 after
+  reset_vec8(&B23[4096 - 64], INIT, 128);
+  VSET(100, e8, m1);
+  asm volatile("vlm.v v3, (%0)" ::"r"(&MASK_SRC[0]));
+  asm volatile("vsm.v v3, (%0)" ::"r"(&B23[4096 - 12]));
+  asm volatile("fence");
+  volatile uint8_t *r23c = &B23[4096 - 13];
+  VVCMP_U8(30, r23c, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, INIT);
 }
+
+// void TEST_CASE22(void) {
+//   // k=1: 1 byte before the boundary, 7 after
+//   reset_vec8(&B23[4096 - 64], INIT, 128);
+//   VSET(1, e64, m1);
+//   VLOAD_64(v22, 0x0807060504030201);
+//   asm volatile("vse64.v v22, (%0)" ::"r"(&B23[4096 - 1]));
+//   asm volatile("fence");
+//   volatile uint8_t *r22a = &B23[4096 - 2];
+//   VVCMP_U8(25, r22a, INIT, 1, 2, 3, 4, 5, 6, 7, 8, INIT);
+
+//   // k=4: 4 bytes before, 4 after
+//   reset_vec8(&B23[4096 - 64], INIT, 128);
+//   VSET(1, e64, m1);
+//   VLOAD_64(v23, 0x0807060504030201);
+//   asm volatile("vse64.v v23, (%0)" ::"r"(&B23[4096 - 4]));
+//   asm volatile("fence");
+//   volatile uint8_t *r22b = &B23[4096 - 5];
+//   VVCMP_U8(26, r22b, INIT, 1, 2, 3, 4, 5, 6, 7, 8, INIT);
+
+//   // k=7: 7 bytes before, 1 after
+//   reset_vec8(&B23[4096 - 64], INIT, 128);
+//   VSET(1, e64, m1);
+//   VLOAD_64(v24, 0x0807060504030201);
+//   asm volatile("vse64.v v24, (%0)" ::"r"(&B23[4096 - 7]));
+//   asm volatile("fence");
+//   volatile uint8_t *r22c = &B23[4096 - 8];
+//   VVCMP_U8(27, r22c, INIT, 1, 2, 3, 4, 5, 6, 7, 8, INIT);
+// }
 
 
 int main(void) {
   INIT_CHECK();
   enable_vec();
 
-  // TEST_MISALIGNED_STORE();
-  // TEST_MISALIGNED_STORE_2();
-  // TEST_MISALIGNED_STORE_3();
-  TEST_MISALIGNED_STORE_4();
-  TEST_MISALIGNED_STORE_5();
-  TEST_VSUXEI();
-  TEST_MISALIGNED_LMUL();
-  TEST_MISALIGNED_PAGE_CROSS();
-  
+  TEST_CASE1();
+  TEST_CASE2();
+  TEST_CASE3();
+  TEST_CASE4();
+  TEST_CASE5();
+  TEST_CASE6();
+  TEST_CASE7();
+  TEST_CASE8();
+  TEST_CASE9();
+  TEST_CASE10();
+  TEST_CASE11();
+  TEST_CASE12();
+  TEST_CASE13();
+  TEST_CASE14();
+  TEST_CASE15();
+  TEST_CASE16();
+  TEST_CASE17();
+  TEST_CASE18();
+  TEST_CASE19();
+  TEST_CASE20();
+  TEST_CASE21();
+  TEST_CASE22();
+  TEST_CASE23();
 
   EXIT_CHECK();
 }

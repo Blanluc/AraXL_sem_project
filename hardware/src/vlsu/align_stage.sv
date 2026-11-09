@@ -376,10 +376,16 @@ typedef struct packed {
   logic flush;
 } wr_req_track_t;
 
+
+
 // SEM PROJ
 logic [$clog2(AxiDataBytes)-1:0] off_inst_d, off_inst_q;
 logic flush_inst_d, flush_inst_q;
 logic flush_active_d, flush_active_q;
+logic [$clog2(AxiDataBytes):0] lastb_inst_d, lastb_inst_q;     // 6 bits: 1..32
+logic [AxiDataBytes:0] trim_mask;
+logic wr_inst_open_d, wr_inst_open_q;
+
 
 // Tracking write requests
 wr_req_track_t [NumTrackers-1:0] wr_track_d, wr_track_q;
@@ -405,6 +411,17 @@ assign axi_resp_o.aw_ready = axi_resp_i.aw_ready && !wr_tracker_full;
 
 // SEM PROJ
 assign off = wr_track_q[wr_commit_pnt_q].off;
+
+// Only the last real input beat of a VSE can be partial: trim strobes beyond the real byte count
+always_comb begin
+  trim_mask = '1;
+  if (wr_track_q[wr_commit_pnt_q].op == VSE &&
+      wr_track_q[wr_commit_pnt_q].last_aw &&
+      (wr_commit_len_q == wr_track_q[wr_commit_pnt_q].len -
+                          (wr_track_q[wr_commit_pnt_q].flush ? 1 : 0)) &&
+      lastb_inst_q < AxiDataBytes)
+    trim_mask = (AxiDataBytes'(1) << lastb_inst_q) - 1;
+end
 
 
 // SEM PROJ DEBUG
@@ -450,7 +467,7 @@ shift_w_beat #(
   ) i_shift_w_beat (
     .data_i    ( axi_req_i.w.data                       ),
     .data_o    ( shifted_data                 ),
-    .strb_i    ( axi_req_i.w.strb                       ),
+    .strb_i    ( axi_req_i.w.strb & trim_mask                      ),
     .strb_o    ( shifted_strb                   ),
     .off_i     ( off),
     .spill_data_i (spill_data_q),
@@ -488,6 +505,8 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     flush_active_q <= '0;
     spill_data_q <= '0;
     spill_strb_q <= '0;
+    lastb_inst_q <= '0;
+    wr_inst_open_q <= '0;
 
 
   end else begin
@@ -507,6 +526,8 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     flush_active_q <= flush_active_d;
     spill_data_q <= spill_data_d;
     spill_strb_q <= spill_strb_d;
+    lastb_inst_q <= lastb_inst_d;
+    wr_inst_open_q <= wr_inst_open_d;
     
   end
 end
@@ -516,6 +537,7 @@ logic is_store_misaligned;
 logic [AxiDataBytes:0] misaligned_store_mask;
 axi_addr_t store_aligned_addr;
 logic flush_only_head, flush_now;
+
 
 // Special case :
 // If the flush causes a 4kb page crossing, the flush beat
@@ -555,6 +577,8 @@ always_comb begin
   //spill_data_i_d = spill_data_i_q;
   spill_data_d = spill_data_q;
   spill_strb_d = spill_strb_q;
+  lastb_inst_d = lastb_inst_q;
+  wr_inst_open_d = wr_inst_open_q;
 
   //////////////////////
   // Request Handling //
@@ -579,12 +603,15 @@ always_comb begin
     automatic int unsigned off_new  = axi_req_i.aw.addr % AxiDataBytes;
     automatic int unsigned nbytes   = cluster_metadata_i.vl << cluster_metadata_i.vew;   // total bytes
     automatic int unsigned lastb    = ((nbytes - 1) % AxiDataBytes) + 1; // number of valid bytes in the last beat
-    automatic logic first_aw        = (wr_vl_q == '0);
+    //automatic logic first_aw        = (wr_vl_q == '0);
+    automatic logic first_aw = !wr_inst_open_q;  
     automatic vlen_cluster_t wr_vl_sum = wr_vl_q + vlen_request;
     automatic logic is_last_aw = (wr_vl_sum >= cluster_metadata_i.vl) || (cluster_metadata_i.op inside {VSXE, VSSE});
     
     // Since offset and flush are only visible for the first AW,
     // we need to store them and pass them to the next AWs
+
+    lastb_inst_d = first_aw ? lastb : lastb_inst_q;
 
     off_inst_d   = first_aw ? off_new : off_inst_q;
     // A flush is injected if the number of valid bytes in the last beat + the offset exceeds the size of a beat
@@ -592,6 +619,8 @@ always_comb begin
     wr_track_d[wr_pnt_q].off     = is_vse ? off_inst_d : '0;
     wr_track_d[wr_pnt_q].flush   = is_vse ? flush_inst_d : 1'b0;
     wr_track_d[wr_pnt_q].last_aw = is_last_aw;
+
+    wr_inst_open_d = !is_last_aw;
     
     //wr_vl_d = wr_vl_q + vlen_request;
     wr_vl_d = wr_vl_sum;
@@ -705,13 +734,6 @@ always_comb begin
         default: axi_req_o.w.strb = '0;
       endcase
     end
-    // `ifndef TARGET_SYNTHESIS
-    // $display("%0t [W ] beat=%0d/%0d commit_pnt=%0d off=%0d flush=%0b last_aw=%0b | in.strb=%h in.last=%0b | out.last=%0b",
-    //         $time, wr_commit_len_q, wr_track_q[wr_commit_pnt_q].len,
-    //         wr_commit_pnt_q, wr_track_q[wr_commit_pnt_q].off,
-    //         wr_track_q[wr_commit_pnt_q].flush, wr_track_q[wr_commit_pnt_q].last_aw,
-    //         axi_req_i.w.strb, axi_req_i.w.last, axi_req_o.w.last);
-    // `endif
   end
 
   if (wr_track_q[wr_commit_pnt_q].op == VSE && off != 0) begin
