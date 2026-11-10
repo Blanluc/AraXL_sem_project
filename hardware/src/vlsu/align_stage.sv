@@ -374,6 +374,9 @@ typedef struct packed {
   logic [$clog2(AxiDataBytes)-1:0] off;
   logic last_aw;
   logic flush;
+  logic [$clog2(AxiDataBytes):0] lastb;
+  int unsigned in_base;
+  int unsigned in_total;
 } wr_req_track_t;
 
 
@@ -382,8 +385,8 @@ typedef struct packed {
 logic [$clog2(AxiDataBytes)-1:0] off_inst_d, off_inst_q;
 logic flush_inst_d, flush_inst_q;
 logic flush_active_d, flush_active_q;
-logic [$clog2(AxiDataBytes):0] lastb_inst_d, lastb_inst_q;     // 6 bits: 1..32
-logic [AxiDataBytes:0] trim_mask;
+int unsigned wr_in_base_d, wr_in_base_q;
+logic [AxiDataBytes-1:0] trim_mask;
 logic wr_inst_open_d, wr_inst_open_q;
 
 
@@ -412,15 +415,14 @@ assign axi_resp_o.aw_ready = axi_resp_i.aw_ready && !wr_tracker_full;
 // SEM PROJ
 assign off = wr_track_q[wr_commit_pnt_q].off;
 
-// Only the last real input beat of a VSE can be partial: trim strobes beyond the real byte count
+// Only last real input beat of a VSE can be partial, trim strobes beyond real byte count
 always_comb begin
   trim_mask = '1;
   if (wr_track_q[wr_commit_pnt_q].op == VSE &&
-      wr_track_q[wr_commit_pnt_q].last_aw &&
-      (wr_commit_len_q == wr_track_q[wr_commit_pnt_q].len -
-                          (wr_track_q[wr_commit_pnt_q].flush ? 1 : 0)) &&
-      lastb_inst_q < AxiDataBytes)
-    trim_mask = (AxiDataBytes'(1) << lastb_inst_q) - 1;
+      (wr_track_q[wr_commit_pnt_q].in_base + wr_commit_len_q) ==
+       (wr_track_q[wr_commit_pnt_q].in_total - 1) &&
+      wr_track_q[wr_commit_pnt_q].lastb < AxiDataBytes)
+    trim_mask = (AxiDataBytes'(1) << wr_track_q[wr_commit_pnt_q].lastb) - 1;
 end
 
 
@@ -505,7 +507,7 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     flush_active_q <= '0;
     spill_data_q <= '0;
     spill_strb_q <= '0;
-    lastb_inst_q <= '0;
+    wr_in_base_q <= '0;
     wr_inst_open_q <= '0;
 
 
@@ -526,7 +528,7 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     flush_active_q <= flush_active_d;
     spill_data_q <= spill_data_d;
     spill_strb_q <= spill_strb_d;
-    lastb_inst_q <= lastb_inst_d;
+    wr_in_base_q <= wr_in_base_d;
     wr_inst_open_q <= wr_inst_open_d;
     
   end
@@ -577,7 +579,7 @@ always_comb begin
   //spill_data_i_d = spill_data_i_q;
   spill_data_d = spill_data_q;
   spill_strb_d = spill_strb_q;
-  lastb_inst_d = lastb_inst_q;
+  wr_in_base_d = wr_in_base_q;
   wr_inst_open_d = wr_inst_open_q;
 
   //////////////////////
@@ -607,15 +609,25 @@ always_comb begin
     automatic logic first_aw = !wr_inst_open_q;  
     automatic vlen_cluster_t wr_vl_sum = wr_vl_q + vlen_request;
     automatic logic is_last_aw = (wr_vl_sum >= cluster_metadata_i.vl) || (cluster_metadata_i.op inside {VSXE, VSSE});
+    automatic int unsigned in_total = (nbytes + AxiDataBytes - 1) / AxiDataBytes;
+    automatic int unsigned in_base  = first_aw ? 0 : wr_in_base_q;
+    automatic int unsigned nin;                    // no initializer: it depends on flush_inst_d, assigned below
     
     // Since offset and flush are only visible for the first AW,
     // we need to store them and pass them to the next AWs
 
-    lastb_inst_d = first_aw ? lastb : lastb_inst_q;
+    //lastb_inst_d = first_aw ? lastb : lastb_inst_q;
 
     off_inst_d   = first_aw ? off_new : off_inst_q;
     // A flush is injected if the number of valid bytes in the last beat + the offset exceeds the size of a beat
     flush_inst_d = first_aw ? (is_vse && off_new != 0 && (off_new + lastb > AxiDataBytes)) : flush_inst_q;
+
+    nin = (axi_req_i.aw.len + 1) - ((flush_inst_d && is_last_aw) ? 1 : 0);   // input beats this AW consumes
+    wr_track_d[wr_pnt_q].lastb    = lastb;
+    wr_track_d[wr_pnt_q].in_base  = in_base;
+    wr_track_d[wr_pnt_q].in_total = in_total;
+    wr_in_base_d = is_last_aw ? 0 : in_base + nin;
+
     wr_track_d[wr_pnt_q].off     = is_vse ? off_inst_d : '0;
     wr_track_d[wr_pnt_q].flush   = is_vse ? flush_inst_d : 1'b0;
     wr_track_d[wr_pnt_q].last_aw = is_last_aw;
@@ -739,6 +751,8 @@ always_comb begin
   if (wr_track_q[wr_commit_pnt_q].op == VSE && off != 0) begin
     axi_req_o.w.data = shifted_data;
     axi_req_o.w.strb = shifted_strb;
+  end else if (wr_track_q[wr_commit_pnt_q].op == VSE) begin
+    axi_req_o.w.strb = axi_req_i.w.strb & trim_mask;
   end
 
   `ifndef TARGET_SYNTHESIS
