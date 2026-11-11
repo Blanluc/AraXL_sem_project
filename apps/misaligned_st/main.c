@@ -41,23 +41,14 @@ static volatile uint16_t B22[128] __attribute__((aligned(AXI_DWIDTH))) = {[0 ...
 static volatile uint8_t F21 = 0;
 static volatile uint8_t B23[8192]  __attribute__((aligned(4096))) = {[0 ... 8191] = INIT};
 static volatile uint8_t MASK_SRC[16] __attribute__((aligned(AXI_DWIDTH))) = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
-
-static volatile uint16_t D21[16]  __attribute__((aligned(AXI_DWIDTH))) =
-  {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
-static volatile uint16_t X21[16]  __attribute__((aligned(AXI_DWIDTH))) =
-  {0,6,12,18,24,30,36,42,48,54,60,66,72,78,84,90};
+static volatile uint16_t D21[16]  __attribute__((aligned(AXI_DWIDTH))) = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+static volatile uint16_t X21[16]  __attribute__((aligned(AXI_DWIDTH))) = {0,6,12,18,24,30,36,42,48,54,60,66,72,78,84,90};
 
 
 void reset_vec8(volatile uint8_t *vec, int rst_val, uint64_t len) {
   for (uint64_t i = 0; i < len; ++i)
     vec[i] = rst_val;
 }
-
-void reset_vec16(volatile uint16_t *vec) {
-  for (uint64_t i = 0; i < 1024; ++i)
-    vec[i] = 0;
-}
-
 
 
 // e16, offset 0, 32 bytes
@@ -273,26 +264,23 @@ void TEST_CASE20(void) {
   VVCMP_U8(23, r20, 0);
 }
 
-// Regression: indexed (vsuxei16) and strided (vsse16) stores, element k at slot 32 + 3k
+
+// Regression: indexed store (vsuxei16) only, element k at slot 32 + 3k
 void TEST_CASE21(void) {
   VSET(16, e16, m1);
   VLOAD_16(v23, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
   VLOAD_16(v24, 0, 6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66, 72, 78, 84, 90);
   asm volatile("vsuxei16.v v23, (%0), v24" ::"r"(&B21[32]));
-  long stride = 6;
-  asm volatile("vsse16.v v23, (%0), %1" ::"r"(&B22[32]), "r"(stride));
-  asm volatile("fence");
   F21 = 0;
   for (int i = 0; i < 128; i++) {
     int rel = i - 32;
     uint16_t exp = INIT;
     if (rel >= 0 && rel % 3 == 0 && rel / 3 < 16) exp = (uint16_t)(rel / 3 + 1);
-    if (B21[i] != exp || B22[i] != exp) F21 = 1;
+    if (B21[i] != exp && F21 == 0) F21 = (uint8_t)(i + 1);   // first bad slot, +1
   }
   volatile uint8_t *r21 = &F21;
   VVCMP_U8(24, r21, 0);
 }
-
 
 void TEST_CASE22(void) {
   // e64 vl=2, starts 8 bytes before the boundary: element 0 in AW1, element 1 in the flush-only AW2
@@ -300,7 +288,6 @@ void TEST_CASE22(void) {
   VSET(2, e64, m1);
   VLOAD_64(v22, 0x0807060504030201, 0x100f0e0d0c0b0a09);
   asm volatile("vse64.v v22, (%0)" ::"r"(&B23[4096 - 8]));
-  asm volatile("fence");
   volatile uint8_t *r22 = &B23[4096 - 9];
   VVCMP_U8(25, r22, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
 }
@@ -312,7 +299,6 @@ void TEST_CASE23(void) {
   VSET(100, e8, m1);
   asm volatile("vlm.v v1, (%0)" ::"r"(&MASK_SRC[0]));
   asm volatile("vsm.v v1, (%0)" ::"r"(&B23[4096 - 1]));
-  asm volatile("fence");
   volatile uint8_t *r23a = &B23[4096 - 2];
   VVCMP_U8(28, r23a, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, INIT);
 
@@ -321,7 +307,6 @@ void TEST_CASE23(void) {
   VSET(100, e8, m1);
   asm volatile("vlm.v v2, (%0)" ::"r"(&MASK_SRC[0]));
   asm volatile("vsm.v v2, (%0)" ::"r"(&B23[4096 - 5]));
-  asm volatile("fence");
   volatile uint8_t *r23b = &B23[4096 - 6];
   VVCMP_U8(29, r23b, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, INIT);
 
@@ -330,10 +315,27 @@ void TEST_CASE23(void) {
   VSET(100, e8, m1);
   asm volatile("vlm.v v3, (%0)" ::"r"(&MASK_SRC[0]));
   asm volatile("vsm.v v3, (%0)" ::"r"(&B23[4096 - 12]));
-  asm volatile("fence");
   volatile uint8_t *r23c = &B23[4096 - 13];
   VVCMP_U8(30, r23c, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, INIT);
 }
+
+// Regression: strided store (vsse16) only, element k at slot 32 + 3k
+void TEST_CASE24(void) {
+  VSET(16, e16, m1);
+  VLOAD_16(v23, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  long stride = 6;
+  asm volatile("vsse16.v v23, (%0), %1" ::"r"(&B22[32]), "r"(stride));
+  F21 = 0;
+  for (int i = 0; i < 128; i++) {
+    int rel = i - 32;
+    uint16_t exp = INIT;
+    if (rel >= 0 && rel % 3 == 0 && rel / 3 < 16) exp = (uint16_t)(rel / 3 + 1);
+    if (B22[i] != exp && F21 == 0) F21 = (uint8_t)(i + 1);   // first bad slot, +1
+  }
+  volatile uint8_t *r21 = &F21;
+  VVCMP_U8(31, r21, 0);
+}
+
 
 
 int main(void) {
@@ -363,6 +365,7 @@ int main(void) {
   TEST_CASE21();
   TEST_CASE22();
   TEST_CASE23();
+  TEST_CASE24();
 
   EXIT_CHECK();
 }

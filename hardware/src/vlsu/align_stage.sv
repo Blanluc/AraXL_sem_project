@@ -425,44 +425,6 @@ always_comb begin
     trim_mask = (AxiDataBytes'(1) << wr_track_q[wr_commit_pnt_q].lastb) - 1;
 end
 
-
-// SEM PROJ DEBUG
-// logic [NumStages:0] axi_req_cut_ready_debug;
-// axi_req_t [NumStages:0] axi_req_i_cut_debug;
-// axi_req_t [NumStages-1:0] axi_req_o_cut_debug;
-
-// assign axi_req_i_cut_debug[0].w = axi_req_i.w;
-// assign axi_req_i_cut_debug[0].w_valid = axi_req_i.w_valid;
-
-// for (genvar s=0; s < NumStages; s++) begin 
-
-//   stream_register #(
-//     .T       ( axi_w_t )
-//   ) i_align_reg_w  (
-//     .clk_i      ( clk_i                     ),
-//     .rst_ni     ( rst_ni                    ),
-//     .clr_i      ( 1'b0                      ),
-//     .testmode_i ( 1'b0                      ),
-//     .valid_i    ( axi_req_i_cut_debug[s].w_valid ),
-//     .ready_o    ( axi_req_cut_ready_debug[s]      ),
-//     .data_i     ( axi_req_i_cut_debug[s].w       ),
-//     .valid_o    ( axi_req_o_cut_debug[s].w_valid ),
-//     .ready_i    ( axi_req_cut_ready_debug[s+1]    ),
-//     .data_o     ( axi_req_o_cut_debug[s].w       )
-//   );
-  
-//   shift_w #(
-//       .AxiDataWidth( AxiDataWidth ), 
-//       .axi_data_t  ( axi_req_t   ),
-//       .ShiftVal    ( 1<<(s)       )
-//     ) i_shift (
-//       .data_i    ( axi_req_o_cut_debug[s]                       ),
-//       .data_o    ( axi_req_i_cut_debug[s+1]                     ),
-//       .sld_valid ( 0 )//tracker_q[rd_resp_pnt_q[s]].shift_en[s] )
-//     );
-// end
-
-
 shift_w_beat #(
     .AxiDataWidth( AxiDataWidth ), 
     .AxiDataBytes( AxiDataBytes )
@@ -477,17 +439,6 @@ shift_w_beat #(
     .spill_strb_i (spill_strb_q),
     .spill_strb_o (spill_strb_temp)
   );
-
-
-  // input  logic [DataBytes*8-1:0]       data_i,
-  // input  logic [DataBytes-1:0]         strb_i,
-  // input  logic [DataBytes*8-1:0]       spill_data_i,
-  // input  logic [DataBytes-1:0]         spill_strb_i,
-  // input  logic [$clog2(DataBytes)-1:0] off_i,
-  // output logic [DataBytes*8-1:0]       data_o,
-  // output logic [DataBytes-1:0]         strb_o,
-  // output logic [DataBytes*8-1:0]       spill_data_o,
-  // output logic [DataBytes-1:0]         spill_strb_o
 
 always_ff @(posedge clk_i or negedge rst_ni) begin
   if(~rst_ni) begin
