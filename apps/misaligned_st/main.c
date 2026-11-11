@@ -6,6 +6,23 @@
 
 #define INIT 98
 
+
+// the header defines MEMORY_BARRIER as empty; make it a real fence for this test
+#undef MEMORY_BARRIER
+#define MEMORY_BARRIER asm volatile ("fence");
+
+// VSET clobbers t0 without declaring it; fix that too
+#undef VSET
+#define VSET(VLEN,VTYPE,LMUL) do {                                                          \
+    asm volatile ("vsetvli t0, %[A]," #VTYPE "," #LMUL ", ta, ma \n" :: [A] "r" (VLEN) : "t0"); \
+  } while(0)
+
+
+  #undef VSET
+#define VSET(VLEN,VTYPE,LMUL) do {                                                  \
+    asm volatile ("vsetvli zero, %[A]," #VTYPE "," #LMUL ", ta, ma \n" :: [A] "r" (VLEN)); \
+  } while(0)
+
 // Every buffer is pre filled with INIT, which acts as the poison value.
 // Each test stores into a misaligned address and compares the stored window plus
 // one element on each side (which must still be INIT).
@@ -43,6 +60,11 @@ static volatile uint8_t B23[8192]  __attribute__((aligned(4096))) = {[0 ... 8191
 static volatile uint8_t MASK_SRC[16] __attribute__((aligned(AXI_DWIDTH))) = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 static volatile uint16_t D21[16]  __attribute__((aligned(AXI_DWIDTH))) = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
 static volatile uint16_t X21[16]  __attribute__((aligned(AXI_DWIDTH))) = {0,6,12,18,24,30,36,42,48,54,60,66,72,78,84,90};
+
+static volatile uint16_t B24[256] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 255] = INIT};
+static volatile uint16_t B25[256] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 255] = INIT};
+static volatile uint16_t B26[256] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 255] = INIT};
+static volatile uint16_t B27[256] __attribute__((aligned(AXI_DWIDTH))) = {[0 ... 255] = INIT};
 
 
 void reset_vec8(volatile uint8_t *vec, int rst_val, uint64_t len) {
@@ -337,6 +359,181 @@ void TEST_CASE24(void) {
 }
 
 
+ 
+// Back to back e16 stores, misaligned -> aligned: three pairs with vl 16, 14, 17 (one VSET per pair, a beat is 16 elements)
+void TEST_CASE25(void) {
+  // pair 1: A vl=16 @ elem 17 (off 2B), B vl=14 @ elem 48 (off 0B)
+  VSET(16, e16, m1);
+  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  VSET(14, e16, m1);
+  VLOAD_16(v2, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64);
+  VSET(16, e16, m1);
+  asm volatile("vse16.v v1, (%0)" ::"r"(&B24[17]));
+  VSET(14, e16, m1);
+  asm volatile("vse16.v v2, (%0)" ::"r"(&B24[48]));
+  // pair 2: A vl=14 @ elem 87 (off 14B), B vl=17 @ elem 112 (off 0B)
+  VSET(14, e16, m1);
+  VLOAD_16(v3, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+  VSET(17, e16, m1);
+  VLOAD_16(v4, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67);
+  VSET(14, e16, m1);
+  asm volatile("vse16.v v3, (%0)" ::"r"(&B24[87]));
+  VSET(17, e16, m1);
+  asm volatile("vse16.v v4, (%0)" ::"r"(&B24[112]));
+  // pair 3: A vl=17 @ elem 157 (off 26B), B vl=16 @ elem 176 (off 0B)
+  VSET(17, e16, m1);
+  VLOAD_16(v5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+  VSET(16, e16, m1);
+  VLOAD_16(v6, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66);
+  VSET(17, e16, m1);
+  asm volatile("vse16.v v5, (%0)" ::"r"(&B24[157]));
+  VSET(16, e16, m1);
+  asm volatile("vse16.v v6, (%0)" ::"r"(&B24[176]));
+  asm volatile("fence");
+  volatile uint16_t *r25a1 = &B24[16];
+  volatile uint16_t *r25b1 = &B24[47];
+  volatile uint16_t *r25a2 = &B24[86];
+  volatile uint16_t *r25b2 = &B24[111];
+  volatile uint16_t *r25a3 = &B24[156];
+  volatile uint16_t *r25b3 = &B24[175];
+  VVCMP_U16(32, r25a1, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
+  VVCMP_U16(33, r25b1, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, INIT);
+  VVCMP_U16(34, r25a2, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, INIT);
+  VVCMP_U16(35, r25b2, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, INIT);
+  VVCMP_U16(36, r25a3, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, INIT);
+  VVCMP_U16(37, r25b3, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, INIT);
+}
+
+
+// Back to back stores with flush, no flush, aligned, flush at max offset
+// void TEST_CASE13(void) {
+//   VSET(16, e16, m1);
+//   VLOAD_16(v16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+//   asm volatile("vse16.v v16, (%0)" ::"r"(&B13[17]));
+//   VSET(15, e16, m1);
+//   VLOAD_16(v17, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+//   asm volatile("vse16.v v17, (%0)" ::"r"(&B13[65]));
+//   VSET(16, e16, m1);
+//   VLOAD_16(v18, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+//   asm volatile("vse16.v v18, (%0)" ::"r"(&B13[112]));
+//   VSET(2, e16, m1);
+//   VLOAD_16(v19, 1, 2);
+//   asm volatile("vse16.v v19, (%0)" ::"r"(&B13[175]));
+//   volatile uint16_t *r13a = &B13[16];
+//   volatile uint16_t *r13b = &B13[64];
+//   volatile uint16_t *r13c = &B13[111];
+//   volatile uint16_t *r13d = &B13[174];
+//   VVCMP_U16(13, r13a, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
+//   VVCMP_U16(14, r13b, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, INIT);
+//   VVCMP_U16(15, r13c, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
+//   VVCMP_U16(16, r13d, INIT, 1, 2, INIT);
+// }
+ 
+// Back to back e16 stores, aligned -> aligned: three pairs with vl 16, 14, 17 (one VSET per pair, a beat is 16 elements)
+void TEST_CASE26(void) {
+  // pair 1: vl=16, A @ elem 16 (off 0B), B @ elem 48 (off 0B)
+  VSET(16, e16, m1);
+  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  VLOAD_16(v2, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66);
+  asm volatile("vse16.v v1, (%0)" ::"r"(&B25[16]));
+  asm volatile("vse16.v v2, (%0)" ::"r"(&B25[48]));
+  // pair 2: vl=14, A @ elem 80 (off 0B), B @ elem 112 (off 0B)
+  VSET(14, e16, m1);
+  VLOAD_16(v3, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+  VLOAD_16(v4, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64);
+  asm volatile("vse16.v v3, (%0)" ::"r"(&B25[80]));
+  asm volatile("vse16.v v4, (%0)" ::"r"(&B25[112]));
+  // pair 3: vl=17, A @ elem 144 (off 0B), B @ elem 176 (off 0B)
+  VSET(17, e16, m1);
+  VLOAD_16(v5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+  VLOAD_16(v6, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67);
+  asm volatile("vse16.v v5, (%0)" ::"r"(&B25[144]));
+  asm volatile("vse16.v v6, (%0)" ::"r"(&B25[176]));
+  asm volatile("fence");
+  volatile uint16_t *r26a1 = &B25[15];
+  volatile uint16_t *r26b1 = &B25[47];
+  volatile uint16_t *r26a2 = &B25[79];
+  volatile uint16_t *r26b2 = &B25[111];
+  volatile uint16_t *r26a3 = &B25[143];
+  volatile uint16_t *r26b3 = &B25[175];
+  VVCMP_U16(38, r26a1, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
+  VVCMP_U16(39, r26b1, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, INIT);
+  VVCMP_U16(40, r26a2, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, INIT);
+  VVCMP_U16(41, r26b2, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, INIT);
+  VVCMP_U16(42, r26a3, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, INIT);
+  VVCMP_U16(43, r26b3, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, INIT);
+}
+ 
+// Back to back e16 stores, aligned -> misaligned: three pairs with vl 16, 14, 17 (one VSET per pair, a beat is 16 elements)
+void TEST_CASE27(void) {
+  // pair 1: vl=16, A @ elem 16 (off 0B), B @ elem 49 (off 2B)
+  VSET(16, e16, m1);
+  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  VLOAD_16(v2, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66);
+  asm volatile("vse16.v v1, (%0)" ::"r"(&B26[16]));
+  asm volatile("vse16.v v2, (%0)" ::"r"(&B26[49]));
+  // pair 2: vl=14, A @ elem 80 (off 0B), B @ elem 121 (off 18B)
+  VSET(14, e16, m1);
+  VLOAD_16(v3, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+  VLOAD_16(v4, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64);
+  asm volatile("vse16.v v3, (%0)" ::"r"(&B26[80]));
+  asm volatile("vse16.v v4, (%0)" ::"r"(&B26[121]));
+  // pair 3: vl=17, A @ elem 144 (off 0B), B @ elem 181 (off 10B)
+  VSET(17, e16, m1);
+  VLOAD_16(v5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+  VLOAD_16(v6, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67);
+  asm volatile("vse16.v v5, (%0)" ::"r"(&B26[144]));
+  asm volatile("vse16.v v6, (%0)" ::"r"(&B26[181]));
+  asm volatile("fence");
+  volatile uint16_t *r27a1 = &B26[15];
+  volatile uint16_t *r27b1 = &B26[48];
+  volatile uint16_t *r27a2 = &B26[79];
+  volatile uint16_t *r27b2 = &B26[120];
+  volatile uint16_t *r27a3 = &B26[143];
+  volatile uint16_t *r27b3 = &B26[180];
+  VVCMP_U16(44, r27a1, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
+  VVCMP_U16(45, r27b1, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, INIT);
+  VVCMP_U16(46, r27a2, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, INIT);
+  VVCMP_U16(47, r27b2, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, INIT);
+  VVCMP_U16(48, r27a3, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, INIT);
+  VVCMP_U16(49, r27b3, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, INIT);
+}
+ 
+// Back to back e16 stores, misaligned -> misaligned: three pairs with vl 16, 14, 17 (one VSET per pair, a beat is 16 elements)
+void TEST_CASE28(void) {
+  // pair 1: vl=16, A @ elem 19 (off 6B), B @ elem 53 (off 10B)
+  VSET(16, e16, m1);
+  VLOAD_16(v1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+  VLOAD_16(v2, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66);
+  asm volatile("vse16.v v1, (%0)" ::"r"(&B27[19]));
+  asm volatile("vse16.v v2, (%0)" ::"r"(&B27[53]));
+  // pair 2: vl=14, A @ elem 91 (off 22B), B @ elem 113 (off 2B)
+  VSET(14, e16, m1);
+  VLOAD_16(v3, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+  VLOAD_16(v4, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64);
+  asm volatile("vse16.v v3, (%0)" ::"r"(&B27[91]));
+  asm volatile("vse16.v v4, (%0)" ::"r"(&B27[113]));
+  // pair 3: vl=17, A @ elem 158 (off 28B), B @ elem 179 (off 6B)
+  VSET(17, e16, m1);
+  VLOAD_16(v5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+  VLOAD_16(v6, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67);
+  asm volatile("vse16.v v5, (%0)" ::"r"(&B27[158]));
+  asm volatile("vse16.v v6, (%0)" ::"r"(&B27[179]));
+  asm volatile("fence");
+  volatile uint16_t *r28a1 = &B27[18];
+  volatile uint16_t *r28b1 = &B27[52];
+  volatile uint16_t *r28a2 = &B27[90];
+  volatile uint16_t *r28b2 = &B27[112];
+  volatile uint16_t *r28a3 = &B27[157];
+  volatile uint16_t *r28b3 = &B27[178];
+  VVCMP_U16(50, r28a1, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, INIT);
+  VVCMP_U16(51, r28b1, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, INIT);
+  VVCMP_U16(52, r28a2, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, INIT);
+  VVCMP_U16(53, r28b2, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, INIT);
+  VVCMP_U16(54, r28a3, INIT, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, INIT);
+  VVCMP_U16(55, r28b3, INIT, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, INIT);
+}
+
 
 int main(void) {
   INIT_CHECK();
@@ -366,6 +563,12 @@ int main(void) {
   TEST_CASE22();
   TEST_CASE23();
   TEST_CASE24();
+
+  TEST_CASE25();
+  TEST_CASE26();
+  TEST_CASE27();
+  TEST_CASE28();
+
 
   EXIT_CHECK();
 }

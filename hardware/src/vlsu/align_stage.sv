@@ -605,12 +605,12 @@ always_comb begin
     //   wr_vl_d = 0;
     //   b_pnt_d = (b_pnt_q == NumTrackers-1) ? 0 : b_pnt_q + 1;
     // end
-    `ifndef TARGET_SYNTHESIS
-    $display("%0t [AW] op=%s addr=%h len=%0d(beats=%0d) off_new=%0d first_aw=%0b | vl=%0d vew=%0d nbytes=%0d lastb=%0d | vlen_req=%0d wr_vl_sum=%0d last_aw=%0b | off_inst=%0d flush=%0b | wr_pnt=%0d wr_cnt=%0d",
-            $time, cluster_metadata_i.op.name(), axi_req_i.aw.addr, axi_req_i.aw.len, axi_req_i.aw.len + 1,
-            off_new, first_aw, cluster_metadata_i.vl, cluster_metadata_i.vew, nbytes, lastb,
-            vlen_request, wr_vl_sum, is_last_aw, off_inst_d, flush_inst_d, wr_pnt_q, wr_cnt_q);
-    `endif
+    // `ifndef TARGET_SYNTHESIS
+    // $display("%0t [AW] op=%s addr=%h len=%0d(beats=%0d) off_new=%0d first_aw=%0b | vl=%0d vew=%0d nbytes=%0d lastb=%0d | vlen_req=%0d wr_vl_sum=%0d last_aw=%0b | off_inst=%0d flush=%0b | wr_pnt=%0d wr_cnt=%0d",
+    //         $time, cluster_metadata_i.op.name(), axi_req_i.aw.addr, axi_req_i.aw.len, axi_req_i.aw.len + 1,
+    //         off_new, first_aw, cluster_metadata_i.vl, cluster_metadata_i.vew, nbytes, lastb,
+    //         vlen_request, wr_vl_sum, is_last_aw, off_inst_d, flush_inst_d, wr_pnt_q, wr_cnt_q);
+    // `endif
   end
 
   ///////////////////////
@@ -706,16 +706,16 @@ always_comb begin
     axi_req_o.w.strb = axi_req_i.w.strb & trim_mask;
   end
 
-  `ifndef TARGET_SYNTHESIS
-  if (axi_req_i.w_valid) begin
-    $display("%0t [WD] acc=%0b dn_rdy=%0b len=%0d/%0d off=%0d fl_act=%0b | in.strb=%h in.d=%h | spill.strb=%h spill.d=%h | out.strb=%h out.d=%h",
-             $time, axi_resp_o.w_ready, axi_resp_i.w_ready,
-             wr_commit_len_q, wr_track_q[wr_commit_pnt_q].len, off, flush_active_q,
-             axi_req_i.w.strb, axi_req_i.w.data,
-             spill_strb_q, spill_data_q,
-             axi_req_o.w.strb, axi_req_o.w.data);
-  end
-  `endif
+  // `ifndef TARGET_SYNTHESIS
+  // if (axi_req_i.w_valid) begin
+  //   $display("%0t [WD] acc=%0b dn_rdy=%0b len=%0d/%0d off=%0d fl_act=%0b | in.strb=%h in.d=%h | spill.strb=%h spill.d=%h | out.strb=%h out.d=%h",
+  //            $time, axi_resp_o.w_ready, axi_resp_i.w_ready,
+  //            wr_commit_len_q, wr_track_q[wr_commit_pnt_q].len, off, flush_active_q,
+  //            axi_req_i.w.strb, axi_req_i.w.data,
+  //            spill_strb_q, spill_data_q,
+  //            axi_req_o.w.strb, axi_req_o.w.data);
+  // end
+  // `endif
 
   // Inject flush beat
   if (flush_now) begin
@@ -734,9 +734,9 @@ always_comb begin
       wr_cnt_d        = wr_cnt_d - 1;
     end
 
-      `ifndef TARGET_SYNTHESIS
-  $display("%0t [FL] dn_rdy=%0b out.strb=%h out.d=%h", $time, axi_resp_i.w_ready, axi_req_o.w.strb, axi_req_o.w.data);
-  `endif
+  //     `ifndef TARGET_SYNTHESIS
+  // $display("%0t [FL] dn_rdy=%0b out.strb=%h out.d=%h", $time, axi_resp_i.w_ready, axi_req_o.w.strb, axi_req_o.w.data);
+  // `endif
   end
 
   
@@ -806,8 +806,15 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
   else w_idle_cnt <= w_idle_cnt + 1;
 end
 assert property (@(posedge clk_i) disable iff (~rst_ni) w_idle_cnt < WStallLimit)
-  else $fatal("AW pending (len=%0d, got %0d beats) but no W beat for %0d cycles: missing beat",
-              wr_track_q[wr_commit_pnt_q].len + 1, wr_commit_len_q, WStallLimit);
+    else begin
+      $display("HANG: i.w_valid=%0b o.w_ready=%0b dn.w_ready=%0b flush_now=%0b flush_act=%0b trk_empty=%0b cnt=%0d pnt=%0d commit_len=%0d trk_len=%0d rd_cnt=%0d",
+         axi_req_i.w_valid, axi_resp_o.w_ready, axi_resp_i.w_ready, flush_now, flush_active_q,
+         wr_tracker_empty, wr_cnt_q, wr_commit_pnt_q, wr_commit_len_q,
+         wr_track_q[wr_commit_pnt_q].len, rd_cnt_q);
+         
+       $fatal(1, "AW pending (len=%0d, got %0d beats), no W for %0d cycles; rd_cnt=%0d",
+              wr_track_q[wr_commit_pnt_q].len + 1, wr_commit_len_q, WStallLimit, rd_cnt_q);
+    end
 
 `endif
 `endif
