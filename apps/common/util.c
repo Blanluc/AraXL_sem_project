@@ -38,5 +38,32 @@ int similarity_check_32b(float a, float b, float threshold) {
     return 1;
 }
 
-// Dummy declaration for libm exp
-int *__errno(void) { return __dummy__errno__ptr__; }
+#include <stddef.h>
+
+#ifndef HEAP_SIZE
+#define HEAP_SIZE (256 * 1024)
+#endif
+
+static char heap[HEAP_SIZE] __attribute__((aligned(64)));
+
+void *_sbrk(ptrdiff_t incr) {
+  static ptrdiff_t used = 0;
+  if (used + incr < 0 || used + incr > (ptrdiff_t)HEAP_SIZE)
+    return (void *)-1;
+  void *prev = heap + used;
+  used += incr;
+  return prev;
+}
+
+#include <sys/time.h>
+
+int _gettimeofday(struct timeval *tv, void *tz) {
+  (void)tz;
+  unsigned long c;
+  __asm__ volatile("rdcycle %0" : "=r"(c));
+  if (tv) {
+    tv->tv_sec  = c / 1000000UL;
+    tv->tv_usec = c % 1000000UL;
+  }
+  return 0;
+}

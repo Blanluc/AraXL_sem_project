@@ -12,7 +12,7 @@
 	url = https://github.com/verilator/verilator
 [submodule "toolchain/newlib"]
 	path = toolchain/newlib
-	url = https://forge.sourceware.org/newlib/newlib-cygwin-mirror.git
+	url = https://sourceware.org/git/newlib-cygwin.git
 	ignore = dirty
 	update = none
 [submodule "toolchain/riscv-llvm"]
@@ -24,3 +24,7 @@
 	path = apps/riscv-vectorized-benchmark-suite
 	url = https://github.com/Navaneeth-KunhiPurayil/riscv-vectorized-benchmark-suite.git
 	branch = araxl/baremetal
+[submodule "apps/TSVC_2"]
+	path = apps/TSVC_2
+	url = https://github.com/Navaneeth-KunhiPurayil/TSVC_2.git
+	branch = socdaml/setup

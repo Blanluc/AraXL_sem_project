@@ -31,6 +31,9 @@ nr_clusters ?= 2
 
 include $(COMMON_DIR)/runtime.mk
 include rivec.mk
+include tsvc.mk
+
+
 
 APPS := $(patsubst $(APPS_DIR)/%/main.c,%,$(wildcard $(APPS_DIR)/*/main.c))
 
