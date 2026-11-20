@@ -33,6 +33,9 @@ TSVC_CCFLAGS   := $(LLVM_FLAGS) $(TSVC_V_FLAGS) \
                   $(DEFINES) $(RISCV_WARNINGS) \
                   -ffunction-sections -fdata-sections
 
+# Hack
+$(TSVC_DIR)/src/common.c.o: TSVC_CCFLAGS += -fno-vectorize -fno-slp-vectorize
+
 define tsvc_gen_data_template
 .PHONY: $1/data.S
 $1/data.S:

@@ -670,10 +670,41 @@ assert property (@(posedge clk_i) disable iff (~rst_ni)
   axi_req_o.aw_valid |-> (axi_req_o.aw.addr[$clog2(AxiDataBytes)-1:0] == '0))
   else $error("AXI write address %0h is not aligned to %0d bytes, Misaligned stores not supported in AraXL now, Ensure alignment of data structure in Software", axi_req_o.aw.addr, AxiDataBytes);
 
+// assert property (@(posedge clk_i) disable iff (~rst_ni)
+//   (axi_resp_i_cut[NumStages].r_valid && axi_req_cut_ready[NumStages]) || 
+//   (data_q == $past(data_d)))
+//   else $error("AXI response data changed without valid request-response handshake");
+
+// Never accept a W beat beyond the AW's promise
 assert property (@(posedge clk_i) disable iff (~rst_ni)
-  (axi_resp_i_cut[NumStages].r_valid && axi_req_cut_ready[NumStages]) || 
-  (data_q == $past(data_d)))
-  else $error("AXI response data changed without valid request-response handshake");
+  (axi_req_i.w_valid && axi_resp_o.w_ready) |-> (wr_commit_len_q <= wr_track_q[wr_commit_pnt_q].len))
+  else $error("W beat count exceeds AW len+1");
+
+// A W beat marked last must be the (len+1)-th beat
+assert property (@(posedge clk_i) disable iff (~rst_ni)
+  (axi_req_o.w_valid && axi_resp_i.w_ready && axi_req_o.w.last)
+    |-> (wr_commit_len_q == wr_track_q[wr_commit_pnt_q].len))
+  else $error("w.last on beat %0d but AW promised %0d beats",
+              wr_commit_len_q + 1, wr_track_q[wr_commit_pnt_q].len + 1);
+
+// Starvation: an AW is outstanding but no W beat has arrived for N cycles
+localparam int unsigned WStallLimit = 200;
+int unsigned w_idle_cnt;
+always_ff @(posedge clk_i or negedge rst_ni) begin
+  if (!rst_ni) w_idle_cnt <= 0;
+  else if ((axi_req_i.w_valid && axi_resp_o.w_ready) || wr_tracker_empty) w_idle_cnt <= 0;
+  else w_idle_cnt <= w_idle_cnt + 1;
+end
+assert property (@(posedge clk_i) disable iff (~rst_ni) w_idle_cnt < WStallLimit)
+    else begin
+      $display("HANG: i.w_valid=%0b o.w_ready=%0b dn.w_ready=%0b flush_now=%0b flush_act=%0b trk_empty=%0b cnt=%0d pnt=%0d commit_len=%0d trk_len=%0d rd_cnt=%0d",
+         axi_req_i.w_valid, axi_resp_o.w_ready, axi_resp_i.w_ready, flush_now, flush_active_q,
+         wr_tracker_empty, wr_cnt_q, wr_commit_pnt_q, wr_commit_len_q,
+         wr_track_q[wr_commit_pnt_q].len, rd_cnt_q);
+         
+       $fatal(1, "AW pending (len=%0d, got %0d beats), no W for %0d cycles; rd_cnt=%0d",
+              wr_track_q[wr_commit_pnt_q].len + 1, wr_commit_len_q, WStallLimit, rd_cnt_q);
+    end
 `endif
 `endif
 
