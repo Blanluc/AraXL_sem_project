@@ -26,5 +26,5 @@
 	branch = araxl/baremetal
 [submodule "apps/TSVC_2"]
 	path = apps/TSVC_2
-	url = https://https://github.com/Navaneeth-KunhiPurayil/TSVC_2.git
+	url = https://github.com/Navaneeth-KunhiPurayil/TSVC_2.git
 	branch = socdaml/setup
